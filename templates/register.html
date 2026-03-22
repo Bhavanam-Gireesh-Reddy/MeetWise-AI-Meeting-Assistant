@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Login — Sarvam AI</title>
+<title>Register — Sarvam AI</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -67,6 +67,13 @@ input::placeholder{color:var(--muted);}
 }
 .error-box.visible{display:block;}
 
+.success-box{
+  display:none;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);
+  border-radius:9px;padding:11px 14px;margin-bottom:18px;
+  font-size:13px;color:#86efac;
+}
+.success-box.visible{display:block;}
+
 .footer-link{
   text-align:center;margin-top:22px;font-size:13px;color:var(--muted);
 }
@@ -87,71 +94,84 @@ input::placeholder{color:var(--muted);}
     <div class="logo-text">Sarvam <span>AI</span></div>
   </div>
 
-  <h1>Welcome back</h1>
-  <p class="subtitle">Sign in to your transcription workspace</p>
+  <h1>Create your account</h1>
+  <p class="subtitle">Start transcribing and translating in seconds</p>
 
   <div class="error-box" id="errorBox"></div>
+  <div class="success-box" id="successBox"></div>
 
+  <div class="field">
+    <label>NAME</label>
+    <input type="text" id="name" placeholder="Your full name" autocomplete="name"/>
+  </div>
   <div class="field">
     <label>EMAIL</label>
     <input type="email" id="email" placeholder="you@example.com" autocomplete="email"/>
   </div>
   <div class="field">
     <label>PASSWORD</label>
-    <input type="password" id="password" placeholder="••••••••" autocomplete="current-password"/>
+    <input type="password" id="password" placeholder="Min 8 characters" autocomplete="new-password"/>
   </div>
 
-  <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign In</button>
+  <button class="btn-primary" id="registerBtn" onclick="doRegister()">Create Account</button>
 
   <div class="footer-link">
-    Don't have an account? <a href="/register">Create one</a>
+    Already have an account? <a href="/login">Sign in</a>
   </div>
 </div>
 
 <script>
+const nameEl  = document.getElementById('name');
 const emailEl = document.getElementById('email');
 const passEl  = document.getElementById('password');
-const btn     = document.getElementById('loginBtn');
+const btn     = document.getElementById('registerBtn');
 const errBox  = document.getElementById('errorBox');
+const succBox = document.getElementById('successBox');
 
 // Allow Enter key
-[emailEl, passEl].forEach(el => el.addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
+[nameEl, emailEl, passEl].forEach(el => el.addEventListener('keydown', e => {
+  if (e.key === 'Enter') doRegister();
 }));
 
-async function doLogin() {
+async function doRegister() {
+  const name     = nameEl.value.trim();
   const email    = emailEl.value.trim();
   const password = passEl.value;
-  if (!email || !password) { showError('Please fill in all fields'); return; }
+  if (!name || !email || !password) { showError('Please fill in all fields'); return; }
+  if (password.length < 8) { showError('Password must be at least 8 characters'); return; }
 
-  btn.disabled    = true;
-  btn.innerHTML   = '<span class="spinner"></span>Signing in...';
+  btn.disabled  = true;
+  btn.innerHTML = '<span class="spinner"></span>Creating account...';
   errBox.classList.remove('visible');
+  succBox.classList.remove('visible');
 
   try {
-    const res  = await fetch('/api/auth/login', {
+    const res  = await fetch('/api/auth/register', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({email, password})
+      body: JSON.stringify({name, email, password})
     });
     const data = await res.json();
-    if (!res.ok) { showError(data.error || 'Login failed'); return; }
-    // Save token to localStorage as backup for cookie
+    if (!res.ok) { showError(data.error || 'Registration failed'); return; }
+    // Save token to localStorage
     if (data.token) {
       localStorage.setItem('auth_token', data.token);
     }
-    window.location.href = '/dashboard';
+    succBox.textContent = '✅ Account created! Redirecting...';
+    succBox.classList.add('visible');
+    setTimeout(() => { window.location.href = '/dashboard'; }, 1000);
   } catch(e) {
     showError('Network error — is the server running?');
   } finally {
     btn.disabled  = false;
-    btn.innerHTML = 'Sign In';
+    btn.innerHTML = 'Create Account';
   }
 }
 
 function showError(msg) {
   errBox.textContent = msg;
   errBox.classList.add('visible');
+  succBox.classList.remove('visible');
 }
 </script>
 </body>
