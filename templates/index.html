@@ -1,0 +1,1964 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Translation — Sarvam AI</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap"
+    rel="stylesheet" />
+  <style>
+    /* ── Reset & Base ────────────────────────────────────── */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #080c10;
+      --surface: #0f1620;
+      --border: #1e2d40;
+      --accent: #00d4ff;
+      --accent2: #7c3aed;
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --text: #e2eaf4;
+      --muted: #6b8299;
+      --font-ui: 'Syne', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --radius: 12px;
+      --glow: 0 0 30px rgba(0, 212, 255, 0.12);
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated background mesh ────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 10% 20%, rgba(0, 212, 255, 0.04) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 40% at 90% 80%, rgba(124, 58, 237, 0.05) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Layout ──────────────────────────────────────────── */
+    .app {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-rows: auto auto auto auto auto 1fr auto;
+      min-height: 100vh;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 20px 24px;
+      gap: 16px;
+      box-sizing: border-box;
+    }
+
+    /* ── Header ──────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.25);
+    }
+
+    .logo-text {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .logo-text span {
+      color: var(--accent);
+    }
+
+    .badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Controls bar ────────────────────────────────────── */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    select,
+    .btn {
+      font-family: var(--font-ui);
+      font-size: 13px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    select {
+      background: var(--surface);
+      color: var(--text);
+      padding: 8px 12px;
+      cursor: pointer;
+      min-width: 140px;
+    }
+
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08);
+    }
+
+    .btn {
+      padding: 9px 18px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      letter-spacing: 0.2px;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #060a0e;
+      border-color: var(--accent);
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+    }
+
+    .btn-primary:hover {
+      background: #33deff;
+      box-shadow: 0 0 28px rgba(0, 212, 255, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.12);
+      color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.2);
+      border-color: var(--danger);
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .sep {
+      width: 1px;
+      height: 28px;
+      background: var(--border);
+    }
+
+    /* ── Status indicator ────────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: all 0.3s;
+    }
+
+    .dot.idle {
+      background: var(--muted);
+    }
+
+    .dot.ready {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .dot.speaking {
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+      animation: pulse-dot 0.8s ease-in-out infinite;
+    }
+
+    .dot.error {
+      background: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+    }
+
+    @keyframes pulse-dot {
+
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      50% {
+        transform: scale(1.4);
+        opacity: 0.7;
+      }
+    }
+
+    /* ── Main transcript area ────────────────────────────── */
+    .transcript-area {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      min-height: 280px;
+    }
+
+    .transcript-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--muted);
+      letter-spacing: 0.5px;
+    }
+
+    .transcript-header .left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .waveform {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      height: 14px;
+    }
+
+    .wave-bar {
+      width: 3px;
+      background: var(--accent);
+      border-radius: 2px;
+      opacity: 0.3;
+      transition: height 0.1s;
+      animation: none;
+    }
+
+    .waveform.active .wave-bar {
+      opacity: 1;
+      animation: wave-anim 0.6s ease-in-out infinite;
+    }
+
+    .wave-bar:nth-child(1) {
+      animation-delay: 0s;
+      height: 4px;
+    }
+
+    .wave-bar:nth-child(2) {
+      animation-delay: 0.1s;
+      height: 8px;
+    }
+
+    .wave-bar:nth-child(3) {
+      animation-delay: 0.2s;
+      height: 12px;
+    }
+
+    .wave-bar:nth-child(4) {
+      animation-delay: 0.1s;
+      height: 8px;
+    }
+
+    .wave-bar:nth-child(5) {
+      animation-delay: 0s;
+      height: 4px;
+    }
+
+    @keyframes wave-anim {
+
+      0%,
+      100% {
+        transform: scaleY(0.4);
+      }
+
+      50% {
+        transform: scaleY(1.0);
+      }
+    }
+
+    .btn-clear {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 3px 8px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-clear:hover {
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+
+    .transcript-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      scroll-behavior: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 200px;
+      max-height: 45vh;
+    }
+
+    .transcript-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .transcript-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .transcript-scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    /* ── Transcript entries ──────────────────────────────── */
+    .entry {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      animation: entry-in 0.25s ease-out;
+    }
+
+    @keyframes entry-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .entry-meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+      padding-left: 2px;
+    }
+
+    .entry-text {
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.55;
+      color: var(--text);
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      border-left: 3px solid var(--accent);
+    }
+
+    .entry-text.partial {
+      color: var(--muted);
+      border-left-color: var(--accent2);
+      font-style: italic;
+      animation: partial-pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes partial-pulse {
+
+      0%,
+      100% {
+        opacity: 0.7;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
+
+    /* ── Empty state ──────────────────────────────────────── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 12px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .empty-icon {
+      font-size: 40px;
+      opacity: 0.4;
+    }
+
+    .empty-state h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .empty-state p {
+      font-size: 13px;
+      font-family: var(--font-mono);
+      max-width: 280px;
+      line-height: 1.6;
+      opacity: 0.6;
+    }
+
+    /* ── Stats footer ────────────────────────────────────── */
+    footer {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .stat {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .stat-val {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* ── Toast ────────────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: var(--font-mono);
+      z-index: 100;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .toast.error {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+
+    .toast.ok {
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    /* ── Vol meter ────────────────────────────────────────── */
+    .vol-meter {
+      width: 100%;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .vol-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--success), var(--accent));
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.05s linear;
+    }
+
+    .label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      padding: 0 4px;
+    }
+
+    /* ── Download dropdown ───────────────────────────────── */
+    .export-dropdown {
+      position: relative;
+      display: inline-block;
+    }
+
+    .download-menu {
+      display: none;
+      position: fixed;
+      background: #0f1620;
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 8px;
+      min-width: 210px;
+      z-index: 9999;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    .download-menu.open {
+      display: block;
+    }
+
+    .download-menu button {
+      display: block;
+      width: 100%;
+      padding: 9px 14px;
+      text-align: left;
+      background: transparent;
+      border: none;
+      color: #e2eaf4;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .download-menu button:hover {
+      background: rgba(0, 212, 255, 0.08);
+      color: #00d4ff;
+    }
+
+    .download-menu button:first-child {
+      border-bottom: 1px solid #1e2d40;
+    }
+
+    /* ── Speaker panel ───────────────────────────────────── */
+    .speaker-panel {
+      background: var(--surface);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .speaker-panel.visible {
+      display: flex;
+    }
+
+    .speaker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--success);
+      letter-spacing: 0.5px;
+    }
+
+    .speaker-body {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .speaker-turn {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .speaker-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      min-width: 80px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      text-align: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .speaker-text {
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text);
+    }
+
+    /* ── Nav buttons ─────────────────────────────────────── */
+    .btn-nav {
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 16px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn-nav:hover,
+    .btn-nav.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ── DB badge ─────────────────────────────────────────── */
+    #dbBadge.ok {
+      border-color: rgba(34, 197, 94, 0.4);
+      color: #22c55e;
+    }
+
+    #dbBadge.error {
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #ef4444;
+    }
+
+    /* ── Keyword highlights ───────────────────────────────── */
+    .keyword {
+      background: rgba(0, 212, 255, 0.12);
+      color: var(--accent);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-weight: 500;
+    }
+
+    /* ── Summary panel ───────────────────────────────────── */
+    .summary-result-panel {
+      background: var(--surface);
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .summary-result-panel.visible {
+      display: flex;
+    }
+
+    .summary-result-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--accent2);
+      letter-spacing: 0.5px;
+    }
+
+    .summary-result-body {
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--text);
+      white-space: pre-wrap;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    /* ── Processing spinner ───────────────────────────────── */
+    .processing-bar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: rgba(124, 58, 237, 0.08);
+      border: 1px solid rgba(124, 58, 237, 0.25);
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--accent2);
+    }
+
+    .processing-bar.visible {
+      display: flex;
+    }
+
+    .proc-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(124, 58, 237, 0.3);
+      border-top-color: var(--accent2);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* ── Summary panel ────────────────────────────────────── */
+    .summary-panel {
+      background: var(--surface);
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .summary-panel.visible {
+      display: flex;
+    }
+
+    .summary-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--accent2);
+      letter-spacing: 0.5px;
+    }
+
+    .summary-body {
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+
+    .summary-spinner {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 1.5px solid var(--border);
+      border-top-color: var(--accent2);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* ── Export toolbar ───────────────────────────────────── */
+    .export-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-export {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 3px 10px;
+      background: transparent;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      letter-spacing: 0.3px;
+    }
+
+    .btn-export.copy {
+      color: var(--accent);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+    }
+
+    .btn-export.txt {
+      color: var(--success);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .btn-export.srt {
+      color: #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .btn-export.clear {
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-export.copy:hover {
+      background: rgba(0, 212, 255, 0.08);
+      border-color: var(--accent);
+    }
+
+    .btn-export.txt:hover {
+      background: rgba(34, 197, 94, 0.08);
+      border-color: var(--success);
+    }
+
+    .btn-export.srt:hover {
+      background: rgba(245, 158, 11, 0.08);
+      border-color: #f59e0b;
+    }
+
+    .btn-export.clear:hover {
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+
+    /* ── Mobile responsive ────────────────────────────────── */
+    @media (max-width: 640px) {
+      .app-shell {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 12px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .controls {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .controls select,
+      .controls .btn {
+        width: auto;
+        flex: 1 1 calc(50% - 4px);
+      }
+
+      .transcript-area {
+        padding: 12px;
+      }
+
+      .export-row {
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .btn-export {
+        font-size: 10px;
+        padding: 5px 10px;
+      }
+
+      .summary-result-panel,
+      .speaker-panel {
+        padding: 12px;
+      }
+
+      .wave-canvas {
+        height: 36px;
+      }
+    }
+  </style>
+  <script src="/auth-helper.js"></script>
+</head>
+
+<body>
+  <div class="app">
+
+    <!-- ── Header ── -->
+    <header>
+      <div class="logo">
+        <div class="logo-icon">🎙</div>
+        <div class="logo-text">Live <span>Translation</span></div>
+        <div class="badge">SAARAS V3</div>
+        <div class="badge" id="dbBadge" style="border-color:#1e2d40; color:#6b8299;">DB ●</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <a href="/live" class="btn-nav active">🎙 Live</a>
+        <a href="/history" class="btn-nav">📋 History</a>
+        <a href="/dashboard" class="btn-nav">📊 Dashboard</a>
+      </div>
+      <div id="userMenu" style="display:none;align-items:center;gap:10px;">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6b8299;" id="userName"></span>
+        <a id="adminLink" href="/admin"
+          style="display:inline-flex;font-family:'JetBrains Mono',monospace;font-size:11px;padding:6px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:7px;color:#ef4444;text-decoration:none;">🛡
+          Admin</a>
+        <button onclick="doLogout()"
+          style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:6px 12px;background:transparent;border:1px solid #1e2d40;border-radius:7px;color:#6b8299;cursor:pointer;"
+          onmouseover="this.style.color='#ef4444';this.style.borderColor='rgba(239,68,68,0.4)'"
+          onmouseout="this.style.color='#6b8299';this.style.borderColor='#1e2d40'">⎋ Logout</button>
+      </div>
+    </header>
+
+    <!-- ── Controls ── -->
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div class="controls">
+        <span class="label">Mode</span>
+        <select id="modeSelect">
+          <option value="translate">Translate → English</option>
+          <option value="transcribe">Transcribe (same lang)</option>
+          <option value="codemix">Code-Mix</option>
+          <option value="verbatim">Verbatim</option>
+        </select>
+
+        <div class="sep"></div>
+
+        <span class="label">Source Language</span>
+        <select id="langSelect">
+          <option value="hi-IN">Hindi</option>
+          <option value="en-IN">English (Indian)</option>
+          <option value="ta-IN">Tamil</option>
+          <option value="te-IN">Telugu</option>
+          <option value="kn-IN">Kannada</option>
+          <option value="ml-IN">Malayalam</option>
+          <option value="bn-IN">Bengali</option>
+          <option value="mr-IN">Marathi</option>
+          <option value="gu-IN">Gujarati</option>
+          <option value="pa-IN">Punjabi</option>
+          <option value="or-IN">Odia</option>
+        </select>
+
+        <div class="sep"></div>
+
+        <button id="startBtn" class="btn btn-primary" onclick="startTranslation()">
+          ▶ Start
+        </button>
+        <button id="stopBtn" class="btn btn-danger" onclick="stopTranslation()" disabled>
+          ■ Stop
+        </button>
+
+        <label class="btn btn-upload" id="uploadLabel" title="Upload audio file (MP3/WAV/OGG/M4A)">
+          ↑ Upload
+          <input type="file" id="audioFileInput" accept="audio/*" style="display:none"
+            onchange="handleAudioUpload(event)" />
+        </label>
+
+        <div class="status-bar">
+          <div class="dot idle" id="statusDot"></div>
+          <span id="statusText">Idle</span>
+        </div>
+      </div>
+
+      <!-- Waveform visualizer -->
+      <canvas id="waveCanvas" class="wave-canvas" width="800" height="54"></canvas>
+      <!-- Upload progress -->
+      <div id="uploadProgress" style="display:none;margin-top:8px;">
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-bottom:4px;">
+          <span id="uploadFileName"></span> — <span id="uploadPct">0%</span>
+        </div>
+        <div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden;">
+          <div id="uploadBar"
+            style="height:100%;width:0%;background:linear-gradient(90deg,var(--warn),var(--accent));border-radius:2px;transition:width 0.1s;">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Summary Panel ── -->
+    <div class="summary-panel" id="summaryPanel">
+      <div class="summary-header">
+        <span>⚡ LIVE SUMMARY</span>
+        <span id="summaryMeta" style="color:var(--muted);">Updated every 10 sentences</span>
+      </div>
+      <div class="summary-body" id="summaryBody">Waiting for enough content...</div>
+    </div>
+
+    <!-- ── Processing Bar ── -->
+    <div class="processing-bar" id="processingBar">
+      <div class="proc-spinner"></div>
+      <span id="processingMsg">Analysing transcript with AI...</span>
+    </div>
+
+    <!-- ── Summary Result Panel ── -->
+    <div class="summary-result-panel" id="summaryResultPanel">
+      <div class="summary-result-header">
+        <span>📝 AI SUMMARY</span>
+        <span id="summaryResultMeta" style="color:var(--muted);font-size:9px;"></span>
+      </div>
+      <div class="summary-result-body" id="summaryResultBody"></div>
+    </div>
+
+    <!-- ── Speaker Diarization Panel ── -->
+    <div class="speaker-panel" id="speakerPanel">
+      <div class="speaker-header">
+        <span>🎤 SPEAKERS DETECTED</span>
+        <span id="speakerCount" style="color:var(--muted);font-size:9px;"></span>
+      </div>
+      <div id="speakerBody" class="speaker-body"></div>
+    </div>
+
+    <!-- ── Transcript Area ── -->
+    <div class="transcript-area">
+      <div class="transcript-header">
+        <div class="left">
+          <div class="waveform" id="waveform">
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+          </div>
+          <span id="headerLabel">TRANSCRIPT</span>
+        </div>
+        <div class="export-bar">
+          <button class="btn-export copy" onclick="copyTranscript()" title="Copy all text">⎘ COPY</button>
+          <div class="export-dropdown">
+            <button class="btn-export txt" onclick="toggleDownloadMenu(event)" title="Download options">↓ TXT ▾</button>
+            <div class="download-menu" id="downloadMenu">
+              <button onclick="exportTXT('raw')">↓ Raw Transcript</button>
+              <button onclick="exportTXT('filtered')">↓ Filtered (Engineering)</button>
+            </div>
+          </div>
+          <button class="btn-export srt" onclick="exportSRT()" title="Download as .srt subtitles">↓ SRT</button>
+          <button class="btn-export clear" onclick="clearTranscript()" title="Clear transcript">✕ CLEAR</button>
+        </div>
+      </div>
+
+      <!-- Scroll-to-bottom indicator -->
+      <div id="scrollIndicator" style="display:none; position:absolute; bottom:16px; right:16px; z-index:10;
+         background:var(--accent); color:#060a0e; border:none; border-radius:20px; padding:6px 14px;
+         font-family:var(--font-mono); font-size:11px; font-weight:600; cursor:pointer;
+         align-items:center; gap:5px; box-shadow:0 4px 16px rgba(0,212,255,0.35);" onclick="scrollToBottom()">
+        ↓ NEW LINES
+      </div>
+      <div class="transcript-scroll" id="transcriptScroll">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">🎙️</div>
+          <h3>Ready to listen</h3>
+          <p>Click Start, allow microphone access, and begin speaking. Transcription appears here in real-time.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Footer Stats ── -->
+    <footer>
+      <div class="stat">Segments: <span class="stat-val" id="statSegments">0</span></div>
+      <div class="stat">Words: <span class="stat-val" id="statWords">0</span></div>
+      <div class="stat">Duration: <span class="stat-val" id="statDuration">0s</span></div>
+      <div class="stat" id="statDB" style="display:none;">
+        Saved: <span class="stat-val" id="statDBCount">0</span> sessions
+      </div>
+      <div style="margin-left:auto; opacity:0.5;">Powered by Sarvam AI · Saaras v3</div>
+    </footer>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ── State ──────────────────────────────────────────────────────────────────
+    let ws = null;
+    let mediaStream = null;
+    let audioContext = null;
+    let processor = null;
+    let analyser = null;
+    let startTime = null;
+    let durationInterval = null;
+    let partialEl = null;
+    let segmentCount = 0;
+    let wordCount = 0;
+    let transcriptLog = [];   // {time, text, timestamp_ms}
+    let userScrolled = false;   // true when user has scrolled up to read history
+
+    // ── WebSocket + Audio ──────────────────────────────────────────────────────
+    async function startTranslation() {
+      const mode = document.getElementById('modeSelect').value;
+      const lang = document.getElementById('langSelect').value;
+
+      setStatus('connecting', 'Connecting…');
+      document.getElementById('startBtn').disabled = true;
+      userScrolled = false;
+      // Clear analysis panels for the new recording (but keep previous transcript visible)
+      document.getElementById('summaryPanel').classList.remove('visible');
+      document.getElementById('summaryBody').textContent = 'Waiting for enough content...';
+      document.getElementById('summaryMeta').textContent = 'Updated every 10 sentences';
+      document.getElementById('summaryResultPanel').classList.remove('visible');
+      document.getElementById('summaryResultBody').textContent = '';
+      window._correctedTranscript = null;
+      document.getElementById('speakerPanel').classList.remove('visible');
+      document.getElementById('speakerBody').innerHTML = '';
+      document.getElementById('processingBar').classList.remove('visible');
+      window._filteredTranscript = null;
+      // Remove empty state if restoring from storage
+      const es = document.getElementById('emptyState');
+      if (es && transcriptLog.length > 0) es.remove();
+
+      // Request mic
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        });
+      } catch (e) {
+        showToast('⚠️ Microphone access denied: ' + e.message, 'error');
+        setStatus('error', 'Mic denied');
+        document.getElementById('startBtn').disabled = false;
+        return;
+      }
+
+      // Open WebSocket
+      const wsUrl = `ws://${location.host}/ws/translate`;
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        // Send settings as first message
+        ws.send(JSON.stringify({ mode, language: lang, target_lang: 'en-IN' }));
+      };
+
+      ws.onmessage = (ev) => handleMessage(JSON.parse(ev.data));
+
+      ws.onerror = (e) => {
+        showToast('WebSocket error — is the server running?', 'error');
+        setStatus('error', 'WS Error');
+        stopTranslation();
+      };
+
+      ws.onclose = () => {
+        ws = null;
+        // Re-enable start button if backend closed the connection
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+      };
+
+      // Setup Web Audio → PCM pipeline
+      audioContext = new AudioContext({ sampleRate: 16000 });
+      const source = audioContext.createMediaStreamSource(mediaStream);
+
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
+
+      // Start waveform animation
+      startWaveform();
+
+      // AudioWorklet to capture raw PCM (replaces deprecated ScriptProcessorNode)
+      const workletCode = `
+    class PCMProcessor extends AudioWorkletProcessor {
+      constructor() { super(); this._buf = []; }
+      process(inputs) {
+        const ch = inputs[0] && inputs[0][0];
+        if (!ch) return true;
+        for (let i = 0; i < ch.length; i++) this._buf.push(ch[i]);
+        if (this._buf.length >= 4096) {
+          this.port.postMessage(new Float32Array(this._buf.splice(0, 4096)));
+        }
+        return true;
+      }
+    }
+    registerProcessor('pcm-processor', PCMProcessor);
+  `;
+      const blob = new Blob([workletCode], { type: 'application/javascript' });
+      const workletUrl = URL.createObjectURL(blob);
+      await audioContext.audioWorklet.addModule(workletUrl);
+      URL.revokeObjectURL(workletUrl);
+
+      processor = new AudioWorkletNode(audioContext, 'pcm-processor');
+      analyser.connect(processor);
+      processor.connect(audioContext.destination);
+
+      processor.port.onmessage = (e) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const float32 = e.data;
+        const int16 = float32ToInt16(float32);
+        ws.send(int16.buffer);
+        updateVolMeter(float32);
+      };
+
+      startTime = Date.now();
+      durationInterval = setInterval(updateDuration, 1000);
+    }
+
+    function stopTranslation() {
+      // Stop microphone immediately
+      if (processor) { processor.disconnect(); processor = null; }
+      if (audioContext) { audioContext.close(); audioContext = null; }
+      if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      stopWaveform();
+
+      // Send stop signal to backend BEFORE closing — backend will process then close
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: "stop" }));
+        // Don't close ws here — backend closes it after sending analysis results
+      } else {
+        ws = null;
+      }
+
+      clearInterval(durationInterval);
+      setStatus('processing', 'Processing…');
+      document.getElementById('startBtn').disabled = true;   // keep disabled until analysis done
+      document.getElementById('stopBtn').disabled = true;
+      document.getElementById('waveform').classList.remove('active');
+      document.getElementById('volFill').style.width = '0%';
+      partialEl = null;
+
+      // Show saved confirmation if DB was connected
+      const dbBadge = document.getElementById('dbBadge');
+      if (dbBadge.classList.contains('ok') && segmentCount > 0) {
+        showToast('✓ Session saved to MongoDB', 'ok');
+        // Update session counter
+        const statDB = document.getElementById('statDB');
+        const statCount = document.getElementById('statDBCount');
+        statDB.style.display = 'flex';
+        statCount.textContent = parseInt(statCount.textContent || '0') + 1;
+      }
+    }
+
+    // ── Message handler ────────────────────────────────────────────────────────
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'ready':
+          setStatus('ready', 'Ready');
+          document.getElementById('stopBtn').disabled = false;
+          showToast('✓ ' + msg.message, 'ok');
+          hideEmptyState();
+          // Update DB badge
+          const dbBadge = document.getElementById('dbBadge');
+          if (msg.db === 'connected') {
+            dbBadge.textContent = 'DB ●';
+            dbBadge.className = 'badge ok';
+          } else {
+            dbBadge.textContent = 'DB ○';
+            dbBadge.className = 'badge error';
+          }
+          // Store session id
+          if (msg.session_id) window._sessionId = msg.session_id;
+          break;
+
+        case 'speech_start':
+          setStatus('speaking', 'Speaking…');
+          document.getElementById('waveform').classList.add('active');
+          break;
+
+        case 'speech_end':
+          setStatus('ready', 'Ready');
+          document.getElementById('waveform').classList.remove('active');
+          break;
+
+        case 'transcript':
+          // Remove partial if any
+          if (partialEl) { partialEl.remove(); partialEl = null; }
+          appendEntry(msg.text, false, msg.keywords || []);
+          break;
+
+        case 'summary':
+          updateSummary(msg.text);
+          break;
+
+        case 'processing':
+          // Show processing spinner
+          document.getElementById('processingBar').classList.add('visible');
+          document.getElementById('processingMsg').textContent = msg.message || 'Analysing transcript...';
+          break;
+
+        case 'session_analysis':
+          document.getElementById('processingBar').classList.remove('visible');
+          if (msg.summary && msg.summary.trim()) showSummaryResult(msg.summary);
+          if (msg.filtered_transcript) window._filteredTranscript = msg.filtered_transcript;
+          if (msg.corrected_transcript) window._correctedTranscript = msg.corrected_transcript;
+          if (msg.title && msg.title.trim()) showSessionTitle(msg.title);
+          if (msg.speakers && msg.speakers.length) showSpeakers(msg.speakers);
+          saveSessionToStorage();  // persist analysis results too
+          showToast('✓ AI analysis complete', 'ok');
+          break;
+
+        case 'saved':
+          setStatus('idle', 'Idle');
+          document.getElementById('startBtn').disabled = false;
+          showToast(msg.message || '✓ Saved', 'ok');
+          break;
+
+        case 'keywords':
+          applyKeywordsToEntry(msg.sentence, msg.keywords || []);
+          break;
+
+        case 'partial':
+          upsertPartial(msg.text);
+          break;
+
+        case 'error':
+          showToast('❌ ' + msg.message, 'error');
+          setStatus('error', 'Error');
+          stopTranslation();
+          break;
+      }
+    }
+
+    // ── DOM helpers ────────────────────────────────────────────────────────────
+    function hideEmptyState() {
+      const es = document.getElementById('emptyState');
+      if (es) es.remove();
+    }
+
+    function appendEntry(text, isPartial, keywords = []) {
+      const scroll = document.getElementById('transcriptScroll');
+      const now = new Date().toLocaleTimeString('en-IN', { hour12: false });
+      const mode = document.getElementById('modeSelect').value;
+
+      const entry = document.createElement('div');
+      entry.className = 'entry';
+      const highlighted = highlightKeywords(escHtml(text), keywords);
+      entry.innerHTML = `
+    <div class="entry-meta">${now} · ${mode.toUpperCase()}</div>
+    <div class="entry-text${isPartial ? ' partial' : ''}">${highlighted}</div>
+  `;
+      scroll.appendChild(entry);
+      smartScroll(scroll);
+
+      if (!isPartial) {
+        segmentCount++;
+        wordCount += text.trim().split(/\s+/).length;
+        document.getElementById('statSegments').textContent = segmentCount;
+        document.getElementById('statWords').textContent = wordCount;
+        transcriptLog.push({ time: now, text: text, ts_ms: Date.now() });
+        saveSessionToStorage();
+      }
+
+      return entry;
+    }
+
+    function upsertPartial(text) {
+      if (!partialEl) {
+        partialEl = appendEntry(text, true);
+      } else {
+        const textEl = partialEl.querySelector('.entry-text');
+        if (textEl) textEl.textContent = text;
+        const scroll = document.getElementById('transcriptScroll');
+        smartScroll(scroll);
+      }
+    }
+
+    function clearTranscript() {
+      if (!confirm('Clear the current transcript? This cannot be undone.')) return;
+      // Wipe localStorage first
+      try { localStorage.removeItem('sarvam_session'); } catch (e) { }
+      window._filteredTranscript = null;
+      window._correctedTranscript = null;
+      window._sessionTitle = null;
+
+      const scroll = document.getElementById('transcriptScroll');
+      scroll.innerHTML = '';
+      partialEl = null; segmentCount = 0; wordCount = 0; transcriptLog = [];
+      document.getElementById('statSegments').textContent = '0';
+      document.getElementById('statWords').textContent = '0';
+      document.getElementById('statDuration').textContent = '0s';
+
+      // Hide panels
+      document.getElementById('summaryResultPanel').classList.remove('visible');
+      document.getElementById('speakerPanel').classList.remove('visible');
+      document.getElementById('processingBar').classList.remove('visible');
+
+      // Re-add empty state
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'empty-state';
+      emptyDiv.id = 'emptyState';
+      emptyDiv.innerHTML = `
+    <div class="empty-icon">🎙️</div>
+    <h3>Ready to listen</h3>
+    <p>Click Start, allow microphone access, and begin speaking.</p>
+  `;
+      scroll.appendChild(emptyDiv);
+      showToast('✓ Transcript cleared', 'ok');
+    }
+
+    // ── Copy & Export ───────────────────────────────────────────────────────────
+    function copyTranscript() {
+      if (!transcriptLog.length) { showToast('Nothing to copy yet', ''); return; }
+      const sentences = transcriptLog.map(e => e.text.trim());
+      const paragraphs = [];
+      for (let i = 0; i < sentences.length; i += 5) {
+        paragraphs.push(sentences.slice(i, i + 5).join(' '));
+      }
+      const text = paragraphs.join('\n\n');
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('✓ Copied to clipboard!', 'ok');
+      }).catch(() => {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('✓ Copied!', 'ok');
+      });
+    }
+
+    function exportTXT(type = 'raw') {
+      if (!transcriptLog.length) { showToast('Nothing to export yet', ''); return; }
+      closeDownloadMenu();
+      const date = new Date().toISOString().slice(0, 10);
+      let body, label;
+
+      if (type === 'filtered' && window._filteredTranscript && window._filteredTranscript.trim()) {
+        body = window._filteredTranscript; label = 'filtered';
+      } else if (type === 'corrected' && window._correctedTranscript && window._correctedTranscript.trim()) {
+        body = window._correctedTranscript; label = 'corrected';
+      } else {
+        if (type !== 'raw') showToast(`No ${type} transcript yet — stop recording first`, '');
+        const sentences = transcriptLog.map(e => e.text.trim());
+        const paragraphs = [];
+        for (let i = 0; i < sentences.length; i += 5) {
+          paragraphs.push(sentences.slice(i, i + 5).join(' '));
+        }
+        body = paragraphs.join('\n\n'); label = 'raw';
+      }
+      downloadFile(`transcript-${label}-${date}.txt`, body, 'text/plain');
+      showToast(`✓ Downloaded ${label} transcript`, 'ok');
+    }
+
+    function toggleDownloadMenu(e) {
+      e.stopPropagation();
+      const menu = document.getElementById('downloadMenu');
+      const btn = e.currentTarget;
+      const rect = btn.getBoundingClientRect();
+      // Position below the button
+      menu.style.top = (rect.bottom + 6) + 'px';
+      menu.style.left = rect.left + 'px';
+      menu.classList.toggle('open');
+    }
+
+    function closeDownloadMenu() {
+      document.getElementById('downloadMenu').classList.remove('open');
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', closeDownloadMenu);
+
+    function exportSRT() {
+      if (!transcriptLog.length) { showToast('Nothing to export yet', ''); return; }
+      const date = new Date().toISOString().slice(0, 10);
+      let srt = '';
+      const sessionStart = transcriptLog[0].ts_ms;
+
+      transcriptLog.forEach((entry, i) => {
+        const startMs = entry.ts_ms - sessionStart;
+        const endMs = startMs + Math.max(2000, entry.text.split(' ').length * 400);
+        srt += `${i + 1}\n`;
+        srt += `${msToSRT(startMs)} --> ${msToSRT(endMs)}\n`;
+        srt += `${entry.text}\n\n`;
+      });
+
+      downloadFile(`transcript-${date}.srt`, srt, 'text/plain');
+      showToast('✓ Downloaded transcript.srt', 'ok');
+    }
+
+    function msToSRT(ms) {
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      const mil = ms % 1000;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(mil).padStart(3, '0')}`;
+    }
+
+    function scrollToBottom() {
+      const scroll = document.getElementById('transcriptScroll');
+      userScrolled = false;
+      scroll.scrollTop = scroll.scrollHeight;
+      document.getElementById('scrollIndicator').style.display = 'none';
+    }
+
+    function downloadFile(filename, content, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // ── Smart scroll ───────────────────────────────────────────────────────────
+    function smartScroll(el) {
+      // Only auto-scroll if user hasn't manually scrolled up
+      if (!userScrolled) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+
+    // ── Session Persistence (localStorage) ───────────────────────────────────────
+    const STORAGE_KEY = 'sarvam_session';
+
+    function saveSessionToStorage() {
+      try {
+        const payload = {
+          transcriptLog,
+          segmentCount,
+          wordCount,
+          filteredTranscript: window._filteredTranscript || null,
+          correctedTranscript: window._correctedTranscript || null,
+          sessionTitle: window._sessionTitle || null,
+          savedAt: Date.now(),
+        };
+        // Save summary text
+        const summaryBody = document.getElementById('summaryResultBody');
+        if (summaryBody && summaryBody.textContent.trim()) {
+          payload.summaryText = summaryBody.textContent.trim();
+        }
+        // Save speaker body HTML
+        const speakerBody = document.getElementById('speakerBody');
+        if (speakerBody && speakerBody.innerHTML.trim()) {
+          payload.speakerHTML = speakerBody.innerHTML;
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      } catch (e) {
+        console.warn('Could not save session to localStorage:', e);
+      }
+    }
+
+    function restoreSessionFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const payload = JSON.parse(raw);
+        if (!payload.transcriptLog || !payload.transcriptLog.length) return;
+
+        // Restore transcript log + counters
+        transcriptLog = payload.transcriptLog;
+        segmentCount = payload.segmentCount || transcriptLog.length;
+        wordCount = payload.wordCount || 0;
+        document.getElementById('statSegments').textContent = segmentCount;
+        document.getElementById('statWords').textContent = wordCount;
+
+        // Restore stored values
+        window._filteredTranscript = payload.filteredTranscript || null;
+        window._correctedTranscript = payload.correctedTranscript || null;
+        window._sessionTitle = payload.sessionTitle || null;
+
+        // Rebuild transcript entries in the DOM
+        const scroll = document.getElementById('transcriptScroll');
+        const es = document.getElementById('emptyState');
+        if (es) es.remove();
+
+        transcriptLog.forEach(entry => {
+          const div = document.createElement('div');
+          div.className = 'entry';
+          div.innerHTML = `
+        <div class="entry-meta">${entry.time} · RESTORED</div>
+        <div class="entry-text">${escHtml(entry.text)}</div>
+      `;
+          scroll.appendChild(div);
+        });
+        scroll.scrollTop = scroll.scrollHeight;
+
+        // Restore summary panel
+        if (payload.summaryText) {
+          showSummaryResult(payload.summaryText);
+        }
+
+        // Restore speaker panel
+        if (payload.speakerHTML) {
+          const speakerPanel = document.getElementById('speakerPanel');
+          const speakerBody = document.getElementById('speakerBody');
+          speakerPanel.classList.add('visible');
+          speakerBody.innerHTML = payload.speakerHTML;
+          const unique = speakerBody.querySelectorAll('.speaker-label').length;
+          document.getElementById('speakerCount').textContent =
+            unique + ' speaker' + (unique !== 1 ? 's' : '') + ' detected';
+        }
+
+        // Restore title in processing bar
+        if (payload.sessionTitle) {
+          showSessionTitle(payload.sessionTitle);
+        }
+
+        // Show how old the restored session is
+        const ageMin = Math.round((Date.now() - payload.savedAt) / 60000);
+        const ageStr = ageMin < 1 ? 'just now' : ageMin < 60 ? `${ageMin}m ago` : `${Math.round(ageMin / 60)}h ago`;
+        showToast(`✓ Session restored (${ageStr})`, 'ok');
+        console.log(`[Restore] ${transcriptLog.length} entries restored from localStorage`);
+      } catch (e) {
+        console.warn('Could not restore session from localStorage:', e);
+      }
+    }
+
+    function initScrollListener() {
+      const scroll = document.getElementById('transcriptScroll');
+      scroll.addEventListener('scroll', () => {
+        const distFromBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
+        userScrolled = distFromBottom > 80;  // user scrolled up more than 80px
+        const indicator = document.getElementById('scrollIndicator');
+        if (indicator) indicator.style.display = userScrolled ? 'flex' : 'none';
+      });
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      initScrollListener();
+      restoreSessionFromStorage();
+    });
+
+    // ── Status ─────────────────────────────────────────────────────────────────
+    function setStatus(state, label) {
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+      dot.className = `dot ${state}`;
+      text.textContent = label;
+    }
+
+    // ── Toast ──────────────────────────────────────────────────────────────────
+    let toastTimer = null;
+    function showToast(msg, type = '') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = `toast ${type} show`;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+    }
+
+    // ── Utilities ──────────────────────────────────────────────────────────────
+    function float32ToInt16(float32) {
+      const int16 = new Int16Array(float32.length);
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      return int16;
+    }
+
+    function updateVolMeter(float32) {
+      let sum = 0;
+      for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
+      const rms = Math.sqrt(sum / float32.length);
+      const pct = Math.min(100, rms * 400);
+      document.getElementById('volFill').style.width = pct + '%';
+    }
+
+    function updateDuration() {
+      if (!startTime) return;
+      const s = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      document.getElementById('statDuration').textContent =
+        m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+    }
+
+    function showSessionTitle(title) {
+      // Show title in the processing bar area after analysis
+      const bar = document.getElementById('processingBar');
+      bar.classList.add('visible');
+      bar.innerHTML = `<span style="color:var(--accent);font-size:13px;font-weight:700;">📌 ${escHtml(title)}</span>`;
+      // Store for future reference
+      window._sessionTitle = title;
+    }
+
+    function showSpeakers(speakers) {
+      const panel = document.getElementById('speakerPanel');
+      const body = document.getElementById('speakerBody');
+      const count = document.getElementById('speakerCount');
+      const unique = [...new Set(speakers.map(s => s.speaker))];
+      const COLORS = [
+        { bg: 'rgba(0,212,255,0.12)', border: 'rgba(0,212,255,0.4)', text: '#00d4ff' },
+        { bg: 'rgba(124,58,237,0.12)', border: 'rgba(124,58,237,0.4)', text: '#a78bfa' },
+        { bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.4)', text: '#4ade80' },
+        { bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.4)', text: '#fbbf24' },
+      ];
+      const colorMap = {};
+      unique.forEach((sp, i) => { colorMap[sp] = COLORS[i % COLORS.length]; });
+
+      panel.classList.add('visible');
+      count.textContent = `${unique.length} speaker${unique.length > 1 ? 's' : ''} detected`;
+      body.innerHTML = speakers.map(turn => {
+        const c = colorMap[turn.speaker] || COLORS[0];
+        return `<div class="speaker-turn">
+      <span class="speaker-label" style="background:${c.bg};border:1px solid ${c.border};color:${c.text};">
+        ${escHtml(turn.speaker)}
+      </span>
+      <span class="speaker-text">${escHtml(turn.text)}</span>
+    </div>`;
+      }).join('');
+    }
+
+    function showSummaryResult(text) {
+      const panel = document.getElementById('summaryResultPanel');
+      const body = document.getElementById('summaryResultBody');
+      const meta = document.getElementById('summaryResultMeta');
+      panel.classList.add('visible');
+      body.textContent = text;
+      meta.textContent = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+
+    function applyKeywordsToEntry(sentence, keywords) {
+      if (!keywords || !keywords.length) return;
+      // Find the last entry whose text matches this sentence
+      const entries = document.querySelectorAll('.entry-text:not(.partial)');
+      for (let i = entries.length - 1; i >= 0; i--) {
+        if (entries[i].textContent.trim() === sentence.trim()) {
+          entries[i].innerHTML = highlightKeywords(escHtml(sentence), keywords);
+          break;
+        }
+      }
+    }
+
+    function highlightKeywords(html, keywords) {
+      if (!keywords || !keywords.length) return html;
+      let result = html;
+      keywords.forEach(kw => {
+        if (!kw || kw.length < 2) return;
+        const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escaped})`, 'gi');
+        result = result.replace(regex, '<span class="keyword">$1</span>');
+      });
+      return result;
+    }
+
+    function updateSummary(text) {
+      const panel = document.getElementById('summaryPanel');
+      const body = document.getElementById('summaryBody');
+      const meta = document.getElementById('summaryMeta');
+      panel.classList.add('visible');
+      body.textContent = text;
+      meta.textContent = 'Updated at ' + new Date().toLocaleTimeString('en-IN', { hour12: false });
+    }
+
+    function escHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // ── Keyboard shortcut ──────────────────────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.repeat) {
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        if (!startBtn.disabled) startTranslation();
+        else if (!stopBtn.disabled) stopTranslation();
+      }
+    });
+  </script>
+
+  <script>
+    // ── User menu ─────────────────────────────────────────────────────────────────
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) return;
+        const user = await res.json();
+        if (!user.email || user.email === 'local') return;
+        const menu = document.getElementById('userMenu');
+        if (menu) {
+          document.getElementById('userName').textContent = user.name || user.email;
+          menu.style.display = 'flex';
+        }
+        const adminLink = document.getElementById('adminLink');
+        if (adminLink) {
+          adminLink.style.display = user.is_admin ? 'inline-flex' : 'none';
+        }
+      } catch (e) { }
+    })();
+
+    async function tryPromoteSelf() {
+      try {
+        const res = await fetch('/api/auth/promote-self', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          const adminLink = document.getElementById('adminLink');
+          if (adminLink) adminLink.style.display = 'inline-flex';
+        }
+      } catch (e) { }
+    }
+
+    async function doLogout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      localStorage.removeItem('auth_token');
+      window.location.href = '/login';
+    }
+
+    // ── Audio File Upload ─────────────────────────────────────────────────────
+    async function handleAudioUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      if (ws) { showToast('Stop current session first', ''); return; }
+
+      document.getElementById('uploadFileName').textContent = file.name;
+      document.getElementById('uploadProgress').style.display = 'block';
+      document.getElementById('uploadBar').style.width = '0%';
+      document.getElementById('uploadPct').textContent = '0%';
+      document.getElementById('uploadLabel').style.pointerEvents = 'none';
+
+      const mode = document.getElementById('modeSelect').value;
+      const lang = document.getElementById('langSelect').value;
+
+      setStatus('connecting', 'Processing file…');
+      transcriptLog = [];
+      document.getElementById('transcriptScroll').innerHTML = '';
+      window._filteredTranscript = null;
+      window._correctedTranscript = null;
+
+      try {
+        const arrayBuf = await file.arrayBuffer();
+        const offline = new OfflineAudioContext(1, Math.ceil((await new AudioContext().decodeAudioData(arrayBuf.slice(0))).duration * 16000), 16000);
+        const decoded = await new AudioContext().decodeAudioData(arrayBuf);
+        const offline2 = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+        const src = offline2.createBufferSource();
+        src.buffer = decoded;
+        src.connect(offline2.destination);
+        src.start();
+        const resampled = await offline2.startRendering();
+        const pcmData = resampled.getChannelData(0);
+
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        ws = new WebSocket(`${proto}://${location.host}/ws/translate`);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = async () => {
+          setStatus('recording', 'Transcribing file…');
+          ws.send(JSON.stringify({ action: 'start', language: lang, mode }));
+          const CHUNK = 8000, total = pcmData.length;
+          for (let i = 0; i < total; i += CHUNK) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) break;
+            const slice = pcmData.slice(i, i + CHUNK);
+            const int16 = new Int16Array(slice.length);
+            for (let j = 0; j < slice.length; j++) {
+              int16[j] = Math.max(-32768, Math.min(32767, Math.round(slice[j] * 32767)));
+            }
+            ws.send(int16.buffer);
+            const pct = Math.round(((i + CHUNK) / total) * 100);
+            document.getElementById('uploadBar').style.width = Math.min(pct, 95) + '%';
+            document.getElementById('uploadPct').textContent = Math.min(pct, 95) + '%';
+            await new Promise(r => setTimeout(r, 20));
+          }
+          if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: 'stop' }));
+          document.getElementById('uploadBar').style.width = '100%';
+          document.getElementById('uploadPct').textContent = '100%';
+        };
+        ws.onmessage = (ev) => handleMessage(JSON.parse(ev.data));
+        ws.onerror = () => { showToast('Upload failed', ''); resetUploadUI(); };
+        ws.onclose = () => {
+          setStatus('idle', 'Idle');
+          document.getElementById('startBtn').disabled = false;
+          document.getElementById('stopBtn').disabled = true;
+          resetUploadUI();
+        };
+      } catch (e) {
+        showToast('Could not decode audio: ' + e.message, '');
+        setStatus('idle', 'Idle');
+        resetUploadUI();
+      }
+      event.target.value = '';
+    }
+
+    function resetUploadUI() {
+      setTimeout(() => {
+        document.getElementById('uploadProgress').style.display = 'none';
+        document.getElementById('uploadLabel').style.pointerEvents = 'auto';
+      }, 1500);
+    }
+
+    // ── Waveform Visualizer ────────────────────────────────────────────────────
+    let waveAnimId = null;
+
+    function startWaveform() {
+      const canvas = document.getElementById('waveCanvas');
+      if (!canvas || !analyser) return;
+      canvas.classList.add('active');
+      const ctx = canvas.getContext('2d');
+      const bufLen = analyser.frequencyBinCount;
+      const wavData = new Uint8Array(bufLen);
+      function draw() {
+        waveAnimId = requestAnimationFrame(draw);
+        analyser.getByteTimeDomainData(wavData);
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        const grad = ctx.createLinearGradient(0, 0, W, 0);
+        grad.addColorStop(0, '#7c3aed');
+        grad.addColorStop(0.5, '#00d4ff');
+        grad.addColorStop(1, '#22c55e');
+        ctx.lineWidth = 2; ctx.strokeStyle = grad;
+        ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 8;
+        ctx.beginPath();
+        const sliceW = W / bufLen; let x = 0;
+        for (let i = 0; i < bufLen; i++) {
+          const y = (wavData[i] / 128.0 * H) / 2;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          x += sliceW;
+        }
+        ctx.lineTo(W, H / 2); ctx.stroke();
+      }
+      draw();
+    }
+
+    function stopWaveform() {
+      if (waveAnimId) { cancelAnimationFrame(waveAnimId); waveAnimId = null; }
+      const canvas = document.getElementById('waveCanvas');
+      if (!canvas) return;
+      canvas.classList.remove('active');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(0,212,255,0.15)';
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height / 2);
+      ctx.lineTo(canvas.width, canvas.height / 2);
+      ctx.stroke();
+    }
+
+    window.addEventListener('load', () => stopWaveform());
+
+  </script>
+</body>
+
+</html>

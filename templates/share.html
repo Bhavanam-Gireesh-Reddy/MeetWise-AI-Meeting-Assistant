@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Shared Transcript — Sarvam AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#080c10;--surface:#0f1620;--border:#1e2d40;--accent:#00d4ff;--accent2:#7c3aed;--text:#e2eaf4;--muted:#6b8299;--font-ui:'Syne',sans-serif;--font-mono:'JetBrains Mono',monospace;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);min-height:100vh;}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 60% 40% at 15% 10%,rgba(0,212,255,.04),transparent 70%);pointer-events:none;}
+.page{max-width:820px;margin:0 auto;padding:40px 24px;position:relative;z-index:1;}
+.badge{display:inline-flex;align-items:center;gap:6px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.25);border-radius:20px;padding:4px 12px;font-family:var(--font-mono);font-size:11px;color:var(--accent);margin-bottom:24px;}
+h1{font-size:26px;font-weight:800;margin-bottom:8px;}
+.meta{display:flex;flex-wrap:wrap;gap:14px;font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-bottom:28px;}
+.meta span{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:3px 10px;}
+.summary-box{background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:10px;padding:16px;margin-bottom:24px;font-size:14px;line-height:1.8;}
+.transcript{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;font-size:14px;line-height:1.9;white-space:pre-wrap;}
+.actions{display:flex;gap:10px;margin-bottom:20px;}
+.btn{font-family:var(--font-mono);font-size:12px;padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+.footer{margin-top:32px;text-align:center;font-size:12px;color:var(--muted);}
+.footer a{color:var(--accent);text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="badge">🔗 Shared Transcript</div>
+  <h1 id="sessionTitle">Transcript</h1>
+  <div class="meta" id="sessionMeta"></div>
+  <div id="summaryBox"></div>
+  <div class="actions">
+    <button class="btn" onclick="copyAll()">⎘ Copy</button>
+    <button class="btn" onclick="window.print()">↓ Print / PDF</button>
+  </div>
+  <div class="transcript" id="transcriptBody"></div>
+  <div class="footer">Transcribed with <a href="/">Sarvam AI Live Transcription</a></div>
+</div>
+<script>
+const session = __SESSION_JSON__;
+const LANG = {'hi-IN':'Hindi','en-IN':'English','ta-IN':'Tamil','te-IN':'Telugu','kn-IN':'Kannada','ml-IN':'Malayalam','bn-IN':'Bengali','mr-IN':'Marathi','gu-IN':'Gujarati','pa-IN':'Punjabi'};
+
+document.getElementById('sessionTitle').textContent = session.title || 'Session Transcript';
+const date = session.started_at ? new Date(session.started_at).toLocaleString('en-IN') : '';
+const lang = LANG[session.language] || session.language || '';
+document.getElementById('sessionMeta').innerHTML =
+  `<span>📅 ${date}</span><span>🌐 ${lang}</span><span>🎙 ${(session.mode||'').toUpperCase()}</span><span>📖 ${(session.word_count||0).toLocaleString()} words</span>`;
+
+document.getElementById('summaryBox').innerHTML = `__SUMMARY_HTML__`;
+const text = session.corrected_transcript || session.transcript || '';
+document.getElementById('transcriptBody').textContent = text;
+
+if (session.notes) {
+  const actions = document.querySelector('.actions');
+  actions.innerHTML += `
+    <button class="btn" onclick="downloadSharedNotes('txt')">📘 Notes (.txt)</button>
+    <button class="btn" onclick="downloadSharedNotes('doc')">📘 Notes (.doc)</button>
+  `;
+}
+
+function downloadSharedNotes(format) {
+  if (!session.notes) return;
+  const dateStr = session.started_at ? new Date(session.started_at).toISOString().slice(0, 10) : 'unknown';
+  let textContent = session.notes;
+  if (session.summary) textContent += '\\n\\n' + '─'.repeat(40) + '\\nSUMMARY\\n' + session.summary;
+
+  let blob, ext;
+  if (format === 'txt') {
+    blob = new Blob([textContent], { type: 'text/plain' });
+    ext = 'txt';
+  } else if (format === 'doc') {
+    let html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">';
+    html += '<head><meta charset="utf-8"><title>Study Notes</title></head><body style="font-family: Arial, sans-serif; line-height: 1.6;">';
+    html += '<h2>AI Study Notes</h2>' + session.notes.split('\\n').filter(p=>p.trim()).map(p => '<p>' + p.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>').join('');
+    if (session.summary) {
+       html += '<hr><h2>AI Summary</h2>' + session.summary.split('\\n').filter(p=>p.trim()).map(p => '<p>' + p.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>').join('');
+    }
+    html += '</body></html>';
+    blob = new Blob(['\\ufeff', html], { type: 'application/msword' });
+    ext = 'doc';
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `study-notes-${dateStr}-${session.session_id}.${ext}`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function copyAll() {
+  navigator.clipboard.writeText(text).then(() => alert('Copied!'));
+}
+</script>
+</body>
+</html>

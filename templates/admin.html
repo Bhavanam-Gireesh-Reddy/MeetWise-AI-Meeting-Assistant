@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Admin Panel — Sarvam AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#080c10;--surface:#0f1620;--surface2:#151f2e;--border:#1e2d40;--accent:#00d4ff;--accent2:#7c3aed;--danger:#ef4444;--success:#22c55e;--warn:#f59e0b;--text:#e2eaf4;--muted:#6b8299;--font-ui:'Syne',sans-serif;--font-mono:'JetBrains Mono',monospace;--radius:12px;}
+html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:var(--font-ui);}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 60% 40% at 15% 10%,rgba(239,68,68,.04),transparent 70%);pointer-events:none;}
+.page{max-width:1100px;margin:0 auto;padding:28px 24px;position:relative;z-index:1;}
+header{display:flex;align-items:center;justify-content:space-between;padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:28px;}
+.logo{display:flex;align-items:center;gap:12px;}
+.logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--danger),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.logo-text{font-size:17px;font-weight:700;}
+.logo-text span{color:var(--danger);}
+.nav{display:flex;gap:8px;}
+.btn-nav{font-family:var(--font-ui);font-size:13px;padding:7px 14px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;cursor:pointer;text-decoration:none;transition:all .2s;}
+.btn-nav:hover{border-color:var(--accent);color:var(--accent);}
+
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:28px;}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;}
+.kpi-val{font-size:28px;font-weight:700;font-family:var(--font-mono);color:var(--accent);}
+.kpi-lbl{font-size:11px;font-family:var(--font-mono);color:var(--muted);margin-top:4px;letter-spacing:.5px;}
+
+.section-title{font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:28px;}
+table{width:100%;border-collapse:collapse;}
+th{font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:.5px;padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);background:var(--surface2);}
+td{padding:11px 16px;font-size:13px;border-bottom:1px solid rgba(30,45,64,.5);}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(0,212,255,.03);}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-family:var(--font-mono);font-size:10px;}
+.tag.admin{background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3);}
+.tag.user{background:rgba(0,212,255,.1);color:var(--accent);border:1px solid rgba(0,212,255,.2);}
+.btn-del{background:transparent;border:1px solid rgba(239,68,68,.3);color:#fca5a5;font-family:var(--font-mono);font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;}
+.btn-del:hover{background:rgba(239,68,68,.15);}
+.btn-promote{background:transparent;border:1px solid rgba(0,212,255,.3);color:var(--accent);font-family:var(--font-mono);font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;margin-right:6px;}
+.btn-promote:hover{background:rgba(0,212,255,.1);}
+.loading{text-align:center;padding:40px;color:var(--muted);font-family:var(--font-mono);font-size:13px;}
+.webhook-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:28px;}
+.field label{font-family:var(--font-mono);font-size:11px;color:var(--muted);display:block;margin-bottom:6px;}
+.field input{width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;}
+.field input:focus{border-color:var(--accent);}
+.btn-save{margin-top:10px;padding:9px 20px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);color:var(--accent);font-family:var(--font-mono);font-size:12px;border-radius:8px;cursor:pointer;}
+.btn-save:hover{background:rgba(0,212,255,.2);}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🛡</div>
+      <div class="logo-text">Admin <span>Panel</span></div>
+    </div>
+    <div class="nav">
+      <a href="/live"         class="btn-nav">🎙 Live</a>
+      <a href="/history"  class="btn-nav">📋 History</a>
+      <a href="/dashboard"class="btn-nav">📊 Dashboard</a>
+    </div>
+  </header>
+
+  <!-- KPIs -->
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-val" id="kUsers">—</div><div class="kpi-lbl">TOTAL USERS</div></div>
+    <div class="kpi"><div class="kpi-val" id="kSessions">—</div><div class="kpi-lbl">TOTAL SESSIONS</div></div>
+    <div class="kpi"><div class="kpi-val" id="kWords">—</div><div class="kpi-lbl">TOTAL WORDS</div></div>
+  </div>
+
+  <!-- Webhook config -->
+  <div class="webhook-section">
+    <div class="section-title">🔔 Your Webhook URL</div>
+    <div class="field">
+      <label>POST target — receives JSON payload after every session saves</label>
+      <input type="url" id="webhookUrl" placeholder="https://your-server.com/webhook"/>
+    </div>
+    <button class="btn-save" onclick="saveWebhook()">Save Webhook</button>
+    <span id="webhookStatus" style="font-family:var(--font-mono);font-size:11px;color:var(--success);margin-left:12px;"></span>
+  </div>
+
+  <!-- Users table -->
+  <div class="section-title">👥 All Users</div>
+  <div class="table-wrap">
+    <div id="usersLoading" class="loading">Loading users…</div>
+    <table id="usersTable" style="display:none">
+      <thead><tr>
+        <th>NAME</th><th>EMAIL</th><th>ROLE</th>
+        <th>SESSIONS</th><th>JOINED</th><th>ACTIONS</th>
+      </tr></thead>
+      <tbody id="usersTbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function load() {
+  // First check if we are admin — if not, show promote button
+  try {
+    const meRes  = await fetch('/api/auth/me');
+    const meData = await meRes.json();
+    if (meData.error) {
+      showNotAdmin('You are not logged in. <a href="/login" style="color:#00d4ff;">Login here</a>');
+      return;
+    }
+    if (!meData.is_admin) {
+      // Try self-promote first
+      const promRes  = await fetch('/api/auth/promote-self', { method: 'POST' });
+      const promData = await promRes.json();
+      if (promData.ok) {
+        showToast('✅ You are now admin — loading panel...');
+        setTimeout(() => location.reload(), 1000);
+        return;
+      }
+      showNotAdmin('You do not have admin access. Ask an existing admin to promote you.');
+      return;
+    }
+  } catch(e) {
+    showNotAdmin('Could not verify admin status. Is the server running?');
+    return;
+  }
+
+  // Stats
+  try {
+    const res  = await fetch('/api/admin/stats');
+    const data = await res.json();
+    document.getElementById('kUsers').textContent    = data.total_users    || 0;
+    document.getElementById('kSessions').textContent = data.total_sessions || 0;
+    document.getElementById('kWords').textContent    = (data.total_words||0).toLocaleString();
+  } catch(e) {}
+
+  // Webhook
+  try {
+    const res = await fetch('/api/webhooks');
+    const data = await res.json();
+    if (data.webhook_url) document.getElementById('webhookUrl').value = data.webhook_url;
+  } catch(e) {}
+
+  // Users
+  try {
+    const res   = await fetch('/api/admin/users');
+    const users = await res.json();
+    document.getElementById('usersLoading').style.display = 'none';
+    document.getElementById('usersTable').style.display   = 'table';
+    document.getElementById('usersTbody').innerHTML = users.map(u => `
+      <tr>
+        <td>${u.name||'—'}</td>
+        <td style="font-family:var(--font-mono);font-size:12px;">${u.email}</td>
+        <td><span class="tag ${u.is_admin?'admin':'user'}">${u.is_admin?'ADMIN':'USER'}</span></td>
+        <td style="font-family:var(--font-mono);">${u.session_count||0}</td>
+        <td style="font-family:var(--font-mono);font-size:11px;color:var(--muted);">${(u.created_at||'').slice(0,10)}</td>
+        <td>
+          ${!u.is_admin?`<button class="btn-promote" onclick="promoteUser('${u.user_id}')">Make Admin</button>`:''}
+          <button class="btn-del" onclick="deleteUser('${u.user_id}','${u.email}')">Delete</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    document.getElementById('usersLoading').textContent = 'Could not load users.';
+  }
+}
+
+async function saveWebhook() {
+  const url = document.getElementById('webhookUrl').value.trim();
+  const res  = await fetch('/api/webhooks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+  const data = await res.json();
+  const st   = document.getElementById('webhookStatus');
+  st.textContent = data.ok ? '✓ Saved' : '✗ Error';
+  setTimeout(() => st.textContent = '', 3000);
+}
+
+async function deleteUser(userId, email) {
+  if (!confirm(`Delete user ${email} and ALL their sessions? This cannot be undone.`)) return;
+  const res = await fetch(`/api/admin/users/${userId}`,{method:'DELETE'});
+  if ((await res.json()).ok) load();
+}
+
+async function promoteUser(userId) {
+  // Simple patch — set is_admin flag
+  const res = await fetch(`/api/admin/users/${userId}/promote`,{method:'POST'});
+  if (res.ok) load();
+}
+
+function showNotAdmin(msg) {
+  document.body.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;
+      background:#080c10;font-family:'Syne',sans-serif;">
+      <div style="text-align:center;padding:40px;max-width:460px;">
+        <div style="font-size:48px;margin-bottom:20px;">🛡</div>
+        <div style="font-size:20px;font-weight:700;color:#e2eaf4;margin-bottom:12px;">Admin Access Required</div>
+        <div style="font-size:14px;color:#6b8299;line-height:1.7;margin-bottom:28px;">${msg}</div>
+        <a href="/dashboard" style="font-family:'JetBrains Mono',monospace;font-size:12px;
+          padding:10px 24px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);
+          border-radius:8px;color:#00d4ff;text-decoration:none;">← Back to Dashboard</a>
+      </div>
+    </div>`;
+}
+
+let toastTimer2;
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
+    'background:#0f1620;border:1px solid #22c55e;color:#22c55e;padding:10px 20px;' +
+    'border-radius:8px;font-family:JetBrains Mono,monospace;font-size:12px;z-index:9999;';
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+load();
+</script>
+</body>
+</html>
