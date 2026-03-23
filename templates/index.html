@@ -1163,7 +1163,8 @@
 
       // Open WebSocket
       const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProto}//${location.host}/ws/translate`;
+      const authToken = localStorage.getItem('auth_token') || '';
+      const wsUrl = `${wsProto}//${location.host}/ws/translate${authToken ? '?token=' + encodeURIComponent(authToken) : ''}`;
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 
@@ -1861,7 +1862,8 @@
         const pcmData = resampled.getChannelData(0);
 
         const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-        ws = new WebSocket(`${proto}://${location.host}/ws/translate`);
+        const uploadToken = localStorage.getItem('auth_token') || '';
+        ws = new WebSocket(`${proto}://${location.host}/ws/translate${uploadToken ? '?token=' + encodeURIComponent(uploadToken) : ''}`);
         ws.binaryType = 'arraybuffer';
 
         ws.onopen = async () => {

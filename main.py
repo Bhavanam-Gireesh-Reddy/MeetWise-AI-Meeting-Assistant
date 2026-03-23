@@ -243,7 +243,7 @@ async def register(body: dict):
         print(f"  [Auth] ✅ First user '{email}' registered as admin")
     token    = create_token(user_id, email)
     response = JSONResponse({"ok": True, "name": name, "api_key": api_key, "is_admin": is_first, "token": token})
-    response.set_cookie("auth_token", token, httponly=False, max_age=72*7*3600, samesite="lax", path="/")
+    response.set_cookie("auth_token", token, httponly=False, max_age=72*7*3600, samesite="none", secure=True, path="/")
     return response
 
 @app.post("/api/auth/login")
@@ -259,7 +259,7 @@ async def login(body: dict):
         return JSONResponse({"error": "Invalid email or password"}, status_code=401)
     token    = create_token(user["user_id"], email)
     response = JSONResponse({"ok": True, "name": user.get("name",""), "api_key": user.get("api_key",""), "token": token})
-    response.set_cookie("auth_token", token, httponly=False, max_age=72*7*3600, samesite="lax", path="/")
+    response.set_cookie("auth_token", token, httponly=False, max_age=72*7*3600, samesite="none", secure=True, path="/")
     return response
 
 @app.post("/api/auth/promote-self")
@@ -1004,7 +1004,8 @@ async def translate_ws(client_ws: WebSocket):
     # Identify user from cookie if auth enabled
     ws_user_id = ""
     if AUTH_AVAILABLE:
-        token = client_ws.cookies.get("auth_token")
+        # Try query param first (browsers don't send cookies over WebSocket on HTTPS)
+        token = client_ws.query_params.get("token") or client_ws.cookies.get("auth_token")
         if token:
             payload = decode_token(token)
             if payload:
@@ -1190,7 +1191,7 @@ async def translate_ws(client_ws: WebSocket):
             pass
 
         result = {"summary": "", "filtered_transcript": ""}
-        if LLM_AVAILABLE and GROQ_API_KEY != "YOUR_GROQ_API_KEY_HERE":
+        if LLM_AVAILABLE and os.getenv("GROQ_API_KEY", "") not in ("", "YOUR_GROQ_API_KEY_HERE"):
             print(f"  [LLM] Calling Groq...")
             result = await process_session(all_sentences)
         else:
