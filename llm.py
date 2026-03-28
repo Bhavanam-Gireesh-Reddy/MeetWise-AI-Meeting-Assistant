@@ -142,26 +142,17 @@ async def process_session(sentences: list) -> dict:
                 cleaned = cleaned[4:]
         cleaned = cleaned.strip()
 
-        # Sanitize control characters inside JSON string values
-        cleaned = re.sub(r'(?<!\\)\n', '\\n', cleaned)
-        cleaned = re.sub(r'(?<!\\)\r', '',   cleaned)
-        cleaned = re.sub(r'(?<!\\)\t', '\\t', cleaned)
-
-        data      = json.loads(cleaned)
+        import json_repair
+        data = json_repair.repair_json(cleaned, return_objects=True)
+        if not isinstance(data, dict):
+            data = {}
+            
         summary   = data.get("summary",   "")
         filtered  = data.get("filtered_transcript",  "")
         corrected = data.get("corrected_transcript", "")
         title     = data.get("title",     "")
         speakers  = data.get("speakers",  [])
         notes     = data.get("notes",     "")
-
-        # Restore actual newlines in text fields
-        for field in [summary, filtered, corrected, notes]:
-            pass   # handled below with isinstance checks
-        if isinstance(summary,   str): summary   = summary.replace("\\n",   "\n")
-        if isinstance(filtered,  str): filtered  = filtered.replace("\\n",  "\n")
-        if isinstance(corrected, str): corrected = corrected.replace("\\n", "\n")
-        if isinstance(notes,     str): notes     = notes.replace("\\n",     "\n")
 
         print(f"  [Groq] ✅ Title:'{title}' Speakers:{len(speakers)} Notes:{len(notes)} chars Summary:{len(summary)} chars")
         return {

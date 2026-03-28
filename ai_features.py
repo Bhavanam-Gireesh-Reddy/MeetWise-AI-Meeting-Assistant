@@ -207,20 +207,13 @@ async def _generate_json(prompt: str, system: str, fallback: Any) -> Any:
         cleaned = re.sub(r"```$", "", cleaned).strip()
 
     try:
-        sanitized = re.sub(r'(?<!\\)\n', '\\n', cleaned)
-        sanitized = re.sub(r'(?<!\\)\r', '',   sanitized)
-        sanitized = re.sub(r'(?<!\\)\t', '\\t', sanitized)
-        return json.loads(sanitized)
-    except Exception:
-        match = re.search(r"(\{.*\}|\[.*\])", cleaned, re.DOTALL)
-        if match:
-            try:
-                sanitized_match = re.sub(r'(?<!\\)\n', '\\n', match.group(1))
-                sanitized_match = re.sub(r'(?<!\\)\r', '',   sanitized_match)
-                sanitized_match = re.sub(r'(?<!\\)\t', '\\t', sanitized_match)
-                return json.loads(sanitized_match)
-            except Exception:
-                return fallback
+        import json_repair
+        res = json_repair.repair_json(cleaned, return_objects=True)
+        if isinstance(res, (dict, list)):
+            return res
+        return fallback
+    except Exception as e:
+        print(f"JSON repair failed: {e}")
         return fallback
 
 
@@ -291,7 +284,11 @@ async def generate_mind_map(session_doc: dict[str, Any]) -> dict[str, Any]:
     data = await _generate_json(prompt, system, fallback)
     if not isinstance(data, dict):
         return fallback
-    data["mermaid"] = str(data.get("mermaid") or "").strip()
+    mermaid_str = str(data.get("mermaid") or "").strip()
+    mermaid_str = re.sub(r"(?i)^mermaid(?: version [^\n]+)?\n?", "", mermaid_str).strip()
+    mermaid_str = re.sub(r"(?i)^```(mermaid)?\n?", "", mermaid_str).strip()
+    mermaid_str = re.sub(r"\n?```$", "", mermaid_str).strip()
+    data["mermaid"] = mermaid_str
     if not isinstance(data.get("outline"), list):
         data["outline"] = []
     return data

@@ -365,7 +365,7 @@ function renderSessionWorkspace() {
   renderQuiz(currentSession.quiz || null);
   renderPodcast(currentSession.podcast || null);
   renderMindMap(currentSession.mind_map || null);
-  document.getElementById('translationOutput').textContent = currentSession.translated_en || 'Choose a language and generate an alternate output.';
+  updateTranslatedOutput();
   document.getElementById('chatLog').innerHTML = '<div class="chat-msg assistant">Ask anything about the selected transcript and I’ll answer from the session context.</div>';
   document.getElementById('chatInput').value = '';
 }
@@ -377,7 +377,7 @@ function renderSpeakers() {
     speakerList.innerHTML = '<div class="tool-copy">Speaker identification will appear here when detected from the transcript.</div>';
     return;
   }
-  speakerList.innerHTML = speakers.slice(0, 10).map(turn => `
+  speakerList.innerHTML = speakers.map(turn => `
     <div class="speaker-turn">
       <span class="speaker-label">${escapeHtml(turn.speaker || 'Speaker')}</span>
       <span class="speaker-text">${escapeHtml(turn.text || '')}</span>
@@ -528,6 +528,20 @@ async function translateCurrent() {
     showToast(e.message);
   }
 }
+
+function updateTranslatedOutput() {
+  if (!currentSession) return;
+  const target = document.getElementById('translateLang').value;
+  const out = document.getElementById('translationOutput');
+  const cacheKey = target === 'same' ? 'transcript' : 'translated_' + target;
+  if (currentSession[cacheKey] || (target==='same' && currentSession.summary)) {
+     out.textContent = currentSession[cacheKey] || currentSession.summary;
+  } else {
+     out.textContent = 'Click "Generate Output" to translate into selected language.';
+  }
+}
+
+document.getElementById('translateLang').addEventListener('change', updateTranslatedOutput);
 
 async function sendChat() {
   if (!currentSession) return;
