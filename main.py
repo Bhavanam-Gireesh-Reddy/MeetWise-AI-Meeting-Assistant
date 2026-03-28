@@ -73,6 +73,7 @@ try:
         generate_mind_map,
         generate_podcast_script,
         generate_quiz,
+        generate_rich_notes,
         generate_translation,
         normalize_custom_vocabulary,
         summarize_sentiment_timeline,
@@ -583,6 +584,21 @@ async def session_mindmap(session_id: str, body: dict, request: Request, x_api_k
     return JSONResponse({"mind_map": mind_map, "cached": False})
 
 
+@app.post("/api/sessions/{session_id}/rich_notes")
+async def session_rich_notes(session_id: str, body: dict, request: Request, x_api_key: str = Header(default="")):
+    if not AI_FEATURES_AVAILABLE or not LLM_AVAILABLE:
+        return JSONResponse({"error": "AI features are not available"}, status_code=503)
+    result, error = await get_session_for_user(session_id, request, x_api_key)
+    if error:
+        return error
+    doc, user = result
+    if doc.get("rich_notes") and not body.get("regenerate"):
+        return JSONResponse({"rich_notes": doc["rich_notes"], "cached": True})
+    rich_notes = await generate_rich_notes(doc)
+    await db_collection.update_one({"session_id": session_id, "user_id": user.get("sub", "")}, {"$set": {"rich_notes": rich_notes}})
+    return JSONResponse({"rich_notes": rich_notes, "cached": False})
+
+
 @app.post("/api/sessions/{session_id}/chat")
 async def session_chat(session_id: str, body: dict, request: Request, x_api_key: str = Header(default="")):
     if not AI_FEATURES_AVAILABLE:
@@ -614,11 +630,13 @@ async def youtube_import(body: dict, request: Request, x_api_key: str = Header(d
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
     url = (body.get("url") or "").strip()
+    auth_browser = (body.get("auth_browser") or "").strip()
+    cookies_content = (body.get("cookies_content") or "").strip()
     if not url:
         return JSONResponse({"error": "YouTube URL is required"}, status_code=400)
 
     try:
-        yt_data = await build_youtube_session(url)
+        yt_data = await build_youtube_session(url, auth_browser, cookies_content)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 

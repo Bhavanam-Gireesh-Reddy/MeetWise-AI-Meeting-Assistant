@@ -86,7 +86,7 @@ Given a full transcript, return a JSON object with exactly these six fields:
 
 2. "filtered_transcript": keep ONLY educational/technical content.
    Remove: casual talk, filler words, greetings, off-topic remarks, repeated fragments.
-   Keep: technical explanations, definitions, concepts, formulas, procedures.
+   Keep: technical explanations, definitions, concepts, formulas, procedures, equations, and specific examples.
    Format as clean paragraphs separated by \\n\\n.
    If nothing is technical, use empty string "".
 

@@ -104,6 +104,24 @@ header{display:flex;align-items:center;justify-content:space-between;gap:14px;pa
 .toast.show{transform:translateX(-50%) translateY(0);}
 .loading{color:var(--muted);font-family:var(--font-mono);font-size:12px;}
 .mindmap-wrap .mermaid{background:#0a111a;border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:12px;overflow:auto;}
+.card-stack-container { display: flex; flex-direction: column; height: 100%; min-height: 200px; }
+.card-stack-content { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.fade-in { animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.carousel-controls {
+  display: flex; justify-content: space-between; align-items: center; margin-top: auto; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px;
+}
+.btn-icon {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 50%;
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; font-size: 14px; padding-bottom: 2px;
+}
+.btn-icon:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); transform: scale(1.08); background: rgba(0,212,255,0.1); }
+.btn-icon:disabled { opacity: 0.25; cursor: not-allowed; border-color: var(--border); color: var(--text); transform: none; }
+.carousel-count { font-family: var(--font-mono); font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; }
+
 @media (max-width: 980px){
   .layout,.hero,.grid-two,.tool-grid{grid-template-columns:1fr;}
   .session-list{max-height:none;}
@@ -129,7 +147,17 @@ header{display:flex;align-items:center;justify-content:space-between;gap:14px;pa
     <aside class="panel sidebar">
       <div class="youtube-box">
         <div class="label">YOUTUBE IMPORT</div>
-        <input class="input" id="youtubeUrl" placeholder="Paste a YouTube URL with captions"/>
+        <select class="select" id="youtubeBrowser" style="margin-bottom:8px" onchange="toggleCookiesInput()">
+          <option value="">No Sign-In (Default)</option>
+          <option value="chrome">Use Chrome Cookies (Bypass Block)</option>
+          <option value="edge">Use Edge Cookies (Bypass Block)</option>
+          <option value="firefox">Use Firefox Cookies (Bypass Block)</option>
+          <option value="brave">Use Brave Cookies (Bypass Block)</option>
+          <option value="safari">Use Safari Cookies (Bypass Block)</option>
+          <option value="paste">Paste Cookies String...</option>
+        </select>
+        <textarea class="textarea" id="youtubeCookies" placeholder="Paste Netscape format cookies.txt content here..." style="display:none; margin-bottom:8px; font-size:10px; min-height:60px;"></textarea>
+        <input class="input" id="youtubeUrl" placeholder="Paste a YouTube URL" style="margin-bottom:8px"/>
         <button class="btn primary" id="youtubeBtn" onclick="importYouTube()">Import YouTube Transcript</button>
         <div class="loading" id="youtubeStatus">Captions-based import creates a normal session you can study like any other.</div>
       </div>
@@ -212,6 +240,12 @@ header{display:flex;align-items:center;justify-content:space-between;gap:14px;pa
 
         <section class="tool-grid">
           <div class="tool-card">
+            <div class="section-title"><span>Rich Notes</span><div class="tool-actions"><button class="btn-sm" onclick="generateArtifact('rich_notes')">Generate</button><button class="btn-sm" onclick="copyRichNotes()">Copy</button></div></div>
+            <div class="tool-copy">Extract detailed Markdown notes with tables, equations, and diagrams.</div>
+            <div class="tool-output" id="rich_notesOutput" style="white-space: pre-wrap; font-family: var(--font-mono); font-size:12px;">No rich notes yet.</div>
+          </div>
+
+          <div class="tool-card">
             <div class="section-title"><span>Flashcards</span><button class="btn-sm" onclick="generateArtifact('flashcards')">Generate</button></div>
             <div class="tool-copy">Create quick revision cards straight from the transcript.</div>
             <div class="tool-output" id="flashcardsOutput">No flashcards yet.</div>
@@ -261,6 +295,8 @@ let filteredSessions = [];
 let currentSession = null;
 let chatHistory = [];
 let generatedPodcast = null;
+let flashcardIndex = 0;
+let quizIndex = 0;
 
 function formatDate(iso) {
   if (!iso) return 'Unknown date';
@@ -365,6 +401,7 @@ function renderSessionWorkspace() {
   renderQuiz(currentSession.quiz || null);
   renderPodcast(currentSession.podcast || null);
   renderMindMap(currentSession.mind_map || null);
+  renderRichNotes(currentSession.rich_notes || null);
   updateTranslatedOutput();
   document.getElementById('chatLog').innerHTML = '<div class="chat-msg assistant">Ask anything about the selected transcript and I’ll answer from the session context.</div>';
   document.getElementById('chatInput').value = '';
@@ -409,13 +446,59 @@ function renderFlashcards(cards) {
     out.textContent = 'No flashcards yet.';
     return;
   }
-  out.innerHTML = cards.map(card => `
-    <div class="flashcard">
-      <div class="flashcard-q">${escapeHtml(card.question || 'Question')}</div>
-      <div><strong>Answer:</strong> ${escapeHtml(card.answer || '')}</div>
-      <div class="tool-copy" style="margin-top:6px;">${escapeHtml(card.explanation || '')}</div>
+  flashcardIndex = 0;
+  out.innerHTML = `
+    <div class="card-stack-container">
+      <div id="flashcardContent" class="card-stack-content fade-in"></div>
+      <div class="carousel-controls">
+        <button class="btn-icon" id="flashcardPrev" onclick="prevFlashcard()">←</button>
+        <span class="carousel-count" id="flashcardCount"></span>
+        <button class="btn-icon" id="flashcardNext" onclick="nextFlashcard()">→</button>
+      </div>
     </div>
-  `).join('');
+  `;
+  updateFlashcardView();
+}
+
+function updateFlashcardView() {
+  const content = document.getElementById('flashcardContent');
+  const countSpan = document.getElementById('flashcardCount');
+  const prevBtn = document.getElementById('flashcardPrev');
+  const nextBtn = document.getElementById('flashcardNext');
+  
+  if (!content || !currentSession || !currentSession.flashcards) return;
+  const cards = currentSession.flashcards;
+  const card = cards[flashcardIndex];
+  
+  content.classList.remove('fade-in');
+  void content.offsetWidth;
+  content.classList.add('fade-in');
+  
+  content.innerHTML = `
+    <div class="flashcard" style="margin-bottom:0; border:none; padding:0; background:transparent;">
+      <div class="flashcard-q" style="font-size:15px; margin-bottom:12px;">${escapeHtml(card.question || 'Question')}</div>
+      <div style="font-size:14px;"><strong>Answer:</strong> ${escapeHtml(card.answer || '')}</div>
+      <div class="tool-copy" style="margin-top:12px; font-size:12px; color:var(--muted);">${escapeHtml(card.explanation || '')}</div>
+    </div>
+  `;
+  
+  countSpan.textContent = `${flashcardIndex + 1} / ${cards.length}`;
+  prevBtn.disabled = flashcardIndex === 0;
+  nextBtn.disabled = flashcardIndex === cards.length - 1;
+}
+
+function prevFlashcard() {
+  if (flashcardIndex > 0) {
+    flashcardIndex--;
+    updateFlashcardView();
+  }
+}
+
+function nextFlashcard() {
+  if (currentSession && currentSession.flashcards && flashcardIndex < currentSession.flashcards.length - 1) {
+    flashcardIndex++;
+    updateFlashcardView();
+  }
 }
 
 function renderQuiz(quiz) {
@@ -424,18 +507,85 @@ function renderQuiz(quiz) {
     out.textContent = 'No quiz yet.';
     return;
   }
-  out.innerHTML = `<div style="font-weight:700;margin-bottom:10px;color:var(--accent2);">${escapeHtml(quiz.title || 'Quiz')}</div>` +
-    quiz.questions.map((q, idx) => `
-      <div class="quiz-q">
-        <div style="font-weight:700;margin-bottom:8px;">Q${idx + 1}. ${escapeHtml(q.question || '')}</div>
-        ${(q.options || []).map((opt, optIdx) => `
-          <div class="quiz-opt ${optIdx === q.answer_index ? 'answer' : ''}">
-            ${String.fromCharCode(65 + optIdx)}. ${escapeHtml(opt)}
-          </div>
-        `).join('')}
-        <div class="tool-copy" style="margin-top:8px;">${escapeHtml(q.explanation || '')}</div>
+  quizIndex = 0;
+  out.innerHTML = `
+    <div class="card-stack-container">
+      <div style="font-weight:700;margin-bottom:10px;color:var(--accent2);">${escapeHtml(quiz.title || 'Quiz')}</div>
+      <div id="quizContent" class="card-stack-content fade-in"></div>
+      <div class="carousel-controls">
+        <button class="btn-icon" id="quizPrev" onclick="prevQuiz()">←</button>
+        <span class="carousel-count" id="quizCount"></span>
+        <button class="btn-icon" id="quizNext" onclick="nextQuiz()">→</button>
       </div>
-    `).join('');
+    </div>
+  `;
+  updateQuizView();
+}
+
+function updateQuizView() {
+  const content = document.getElementById('quizContent');
+  const countSpan = document.getElementById('quizCount');
+  const prevBtn = document.getElementById('quizPrev');
+  const nextBtn = document.getElementById('quizNext');
+  
+  if (!content || !currentSession || !currentSession.quiz || !currentSession.quiz.questions) return;
+  const questions = currentSession.quiz.questions;
+  const q = questions[quizIndex];
+  
+  content.classList.remove('fade-in');
+  void content.offsetWidth;
+  content.classList.add('fade-in');
+  
+  content.innerHTML = `
+    <div class="quiz-q" style="margin-bottom:0; border:none; padding:0; background:transparent;">
+      <div style="font-weight:700;margin-bottom:12px;font-size:14px;">Q${quizIndex + 1}. ${escapeHtml(q.question || '')}</div>
+      ${(q.options || []).map((opt, optIdx) => `
+        <div class="quiz-opt ${optIdx === q.answer_index ? 'answer' : ''}" style="margin-top:8px; padding:10px 12px; font-size:13px; line-height:1.4;">
+          ${String.fromCharCode(65 + optIdx)}. ${escapeHtml(opt)}
+        </div>
+      `).join('')}
+      <div class="tool-copy" style="margin-top:12px; font-size:12px;">${escapeHtml(q.explanation || '')}</div>
+    </div>
+  `;
+  
+  countSpan.textContent = `${quizIndex + 1} / ${questions.length}`;
+  prevBtn.disabled = quizIndex === 0;
+  nextBtn.disabled = quizIndex === questions.length - 1;
+}
+
+function prevQuiz() {
+  if (quizIndex > 0) {
+    quizIndex--;
+    updateQuizView();
+  }
+}
+
+function nextQuiz() {
+  if (currentSession && currentSession.quiz && currentSession.quiz.questions && quizIndex < currentSession.quiz.questions.length - 1) {
+    quizIndex++;
+    updateQuizView();
+  }
+}
+
+function renderRichNotes(notes) {
+  const out = document.getElementById('rich_notesOutput');
+  if (!notes) {
+    out.textContent = 'No rich notes yet.';
+    return;
+  }
+  out.textContent = notes;
+}
+
+function copyRichNotes() {
+  if (!currentSession || !currentSession.rich_notes) {
+    showToast('Generate rich notes first.');
+    return;
+  }
+  navigator.clipboard.writeText(currentSession.rich_notes).then(() => {
+    showToast('Notes copied to clipboard!');
+  }).catch(() => {
+    showToast('Failed to copy');
+  });
 }
 
 function renderPodcast(podcast) {
@@ -507,7 +657,8 @@ async function generateArtifact(kind) {
     flashcards: 'flashcardsOutput',
     quiz: 'quizOutput',
     podcast: 'podcastOutput',
-    mindmap: 'mindmapOutput'
+    mindmap: 'mindmapOutput',
+    rich_notes: 'rich_notesOutput'
   };
   const out = document.getElementById(outputMap[kind]);
   out.textContent = 'Generating...';
@@ -536,7 +687,11 @@ async function generateArtifact(kind) {
       currentSession.mind_map = data.mind_map || null;
       await renderMindMap(currentSession.mind_map);
     }
-    showToast(`${kind} ready`);
+    if (kind === 'rich_notes') {
+      currentSession.rich_notes = data.rich_notes || null;
+      renderRichNotes(currentSession.rich_notes);
+    }
+    showToast(`${kind.replace('_',' ')} ready`);
   } catch (e) {
     out.textContent = e.message;
     showToast(e.message);
@@ -628,6 +783,8 @@ function playPodcast() {
 
 async function importYouTube() {
   const url = document.getElementById('youtubeUrl').value.trim();
+  const auth_browser = document.getElementById('youtubeBrowser').value;
+  const cookies_content = auth_browser === 'paste' ? document.getElementById('youtubeCookies').value.trim() : "";
   const btn = document.getElementById('youtubeBtn');
   const status = document.getElementById('youtubeStatus');
   if (!url) {
@@ -640,7 +797,7 @@ async function importYouTube() {
     const res = await fetch('/api/youtube/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
+      body: JSON.stringify({ url, auth_browser, cookies_content })
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'Import failed');
@@ -664,6 +821,12 @@ function showToast(msg) {
   toast.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
+function toggleCookiesInput() {
+  const browser = document.getElementById('youtubeBrowser').value;
+  const text = document.getElementById('youtubeCookies');
+  text.style.display = browser === 'paste' ? 'block' : 'none';
 }
 
 document.addEventListener('DOMContentLoaded', loadSessions);

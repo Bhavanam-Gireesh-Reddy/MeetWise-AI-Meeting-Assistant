@@ -294,6 +294,40 @@ async def generate_mind_map(session_doc: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+async def generate_rich_notes(session_doc: dict[str, Any]) -> str:
+    fallback = "Could not generate rich notes."
+    if not has_llm_access():
+        return fallback
+
+    transcript = session_doc.get("filtered_transcript") or session_doc.get("corrected_transcript") or session_doc.get("transcript") or ""
+    if not transcript:
+        return fallback
+
+    system = (
+        "You create highly detailed 'Rich Notes' from a given transcript. "
+        "Your notes MUST include rich formatting such as Markdown tables, equations (using $$), "
+        "and Mermaid.js diagrams (using ```mermaid blocks) to explain concepts visually. "
+        "Extract all examples, equations, and technical specifics strictly from the provided text. "
+        "Return ONLY the raw markdown content. Do not use JSON. "
+        "Format cleanly with Headings and Bullet Points."
+    )
+    prompt = f"Transcript Context:\n\n{transcript}\n\nGenerate Rich Notes now:"
+    
+    raw = await call_groq(prompt, system, max_tokens=3000)
+    if not raw:
+        return fallback
+    
+    cleaned = raw.strip()
+    if cleaned.startswith("```markdown"):
+        cleaned = cleaned[11:].strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+    elif cleaned.startswith("```\n") and cleaned.endswith("```"):
+        cleaned = cleaned[4:-3].strip()
+            
+    return cleaned
+
+
 async def chat_with_transcript(
     session_doc: dict[str, Any],
     message: str,
@@ -347,7 +381,7 @@ def _parse_vtt_to_text(vtt_text: str) -> str:
     return " ".join(deduped).strip()
 
 
-def import_youtube_transcript(url: str) -> dict[str, Any]:
+def import_youtube_transcript(url: str, auth_browser: str = "", cookies_content: str = "") -> dict[str, Any]:
     if not YTDLP_AVAILABLE:
         raise RuntimeError("yt-dlp is not installed. Add it from requirements and reinstall dependencies.")
     if not url.strip():
@@ -366,6 +400,13 @@ def import_youtube_transcript(url: str) -> dict[str, Any]:
             "noplaylist": True,
             "extractor_args": {"youtube": {"player_client": ["ios", "default"]}}
         }
+        if auth_browser and auth_browser != "paste":
+            ydl_opts["cookiesfrombrowser"] = (auth_browser,)
+        elif cookies_content:
+            cookies_file = Path(temp_dir) / "cookies.txt"
+            cookies_file.write_text(cookies_content)
+            ydl_opts["cookiefile"] = str(cookies_file)
+            
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
                 info = ydl.extract_info(url, download=True)
@@ -393,6 +434,14 @@ def import_youtube_transcript(url: str) -> dict[str, Any]:
                 "noplaylist": True,
                 "extractor_args": {"youtube": {"player_client": ["ios", "default"]}}
             }
+            if auth_browser and auth_browser != "paste":
+                ydl_opts_audio["cookiesfrombrowser"] = (auth_browser,)
+            elif cookies_content:
+                cookies_file = Path(temp_dir) / "cookies.txt"
+                if not cookies_file.exists():
+                    cookies_file.write_text(cookies_content)
+                ydl_opts_audio["cookiefile"] = str(cookies_file)
+                
             with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_audio:
                 try:
                     ydl_audio.extract_info(url, download=True)
@@ -455,8 +504,8 @@ def import_youtube_transcript(url: str) -> dict[str, Any]:
         }
 
 
-async def build_youtube_session(url: str) -> dict[str, Any]:
-    imported = await asyncio.to_thread(import_youtube_transcript, url)
+async def build_youtube_session(url: str, auth_browser: str = "", cookies_content: str = "") -> dict[str, Any]:
+    imported = await asyncio.to_thread(import_youtube_transcript, url, auth_browser, cookies_content)
     sentences = transcript_to_sentences(imported["transcript"])
     analysis = await process_session(sentences) if has_llm_access() else {
         "summary": "",
