@@ -5,9 +5,15 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: FRONTEND_URL
+        fromService:
+          type: web
+          name: meetwise-frontend
+          envVarKey: RENDER_EXTERNAL_URL
       - key: SARVAM_API_KEY
         sync: false
       - key: GROQ_API_KEY
@@ -24,3 +30,19 @@ services:
         value: "false"
       - key: SECRET_KEY
         generateValue: true
+  - type: web
+    name: meetwise-frontend
+    env: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: BACKEND_URL
+        fromService:
+          type: web
+          name: meetwise-api
+          envVarKey: RENDER_EXTERNAL_URL

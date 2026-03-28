@@ -92,6 +92,7 @@ MONGO_DB       = os.getenv("MONGO_DB",       "live_transcription")
 MONGO_COL      = os.getenv("MONGO_COL",      "sessions")
 MONGO_COL_USERS= os.getenv("MONGO_COL_USERS","users")
 SECRET_KEY     = os.getenv("SECRET_KEY",     "change_me_in_production")
+FRONTEND_URL   = os.getenv("FRONTEND_URL",   "").rstrip("/")
 
 SAMPLE_RATE   = 16000
 CHANNELS      = 1
@@ -102,6 +103,39 @@ db_client      = None
 db_collection  = None
 users_col      = None
 redis_client   = None
+
+
+def clean_origin(value: str) -> str | None:
+    value = (value or "").strip().rstrip("/")
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    return None
+
+
+def get_frontend_url() -> str | None:
+    configured = clean_origin(FRONTEND_URL)
+    if configured:
+        return configured
+    if os.getenv("RENDER") == "true" or os.getenv("NODE_ENV") == "production":
+        return None
+    return "http://127.0.0.1:3000"
+
+
+def build_cors_origins() -> list[str]:
+    origins = {
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    }
+    frontend_origin = get_frontend_url()
+    if frontend_origin:
+        origins.add(frontend_origin)
+    for value in os.getenv("CORS_ORIGINS", "").split(","):
+        origin = clean_origin(value)
+        if origin:
+            origins.add(origin)
+    return sorted(origins)
 
 
 @asynccontextmanager
@@ -154,7 +188,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=build_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -184,11 +218,17 @@ async def require_api_auth(request: Request, x_api_key: str = Header(default="")
         return {"sub": "local", "email": "local"}
     return None
 
-
-def serve_html(filename: str):
-    base = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(base, "templates", filename), "r", encoding="utf-8") as f:
-        return f.read()
+def frontend_redirect(path: str):
+    frontend_url = get_frontend_url()
+    if not frontend_url:
+        return JSONResponse(
+            {
+                "error": "Frontend URL is not configured",
+                "path": path,
+            },
+            status_code=503,
+        )
+    return RedirectResponse(f"{frontend_url}{path}", status_code=302)
 
 
 @app.get("/favicon.ico")
@@ -205,26 +245,31 @@ async def favicon():
                     headers={"Cache-Control": "public, max-age=86400"})
 
 
-@app.get("/auth-helper.js")
-async def auth_helper_js():
-    from fastapi.responses import Response
-    base = os.path.dirname(os.path.abspath(__file__))
-    js   = open(os.path.join(base, "templates", "auth-helper.js"), "r").read()
-    return Response(content=js, media_type="application/javascript")
+@app.get("/api/health")
+async def health_check():
+    return JSONResponse(
+        {
+            "ok": True,
+            "service": "meetwise-api",
+            "auth_available": bool(AUTH_AVAILABLE),
+            "mongo_connected": db_collection is not None,
+            "frontend_url_configured": bool(get_frontend_url()),
+        }
+    )
 
 
 # ── Auth page routes ──────────────────────────────────────────────────────────
-@app.get("/login", response_class=HTMLResponse)
+@app.get("/login")
 async def login_page(request: Request):
     if AUTH_AVAILABLE and get_current_user(request):
-        return RedirectResponse("/dashboard", status_code=302)
-    return serve_html("login.html")
+        return frontend_redirect("/dashboard")
+    return frontend_redirect("/login")
 
-@app.get("/register", response_class=HTMLResponse)
+@app.get("/register")
 async def register_page(request: Request):
     if AUTH_AVAILABLE and get_current_user(request):
-        return RedirectResponse("/dashboard", status_code=302)
-    return serve_html("register.html")
+        return frontend_redirect("/dashboard")
+    return frontend_redirect("/register")
 
 @app.post("/api/auth/register")
 async def register(body: dict):
@@ -414,24 +459,17 @@ async def me(request: Request):
 
 
 # ── Protected page routes ─────────────────────────────────────────────────────
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def index(request: Request):
-    return RedirectResponse("/dashboard", status_code=302)
+    return frontend_redirect("/dashboard")
 
-@app.get("/live", response_class=HTMLResponse)
+@app.get("/live")
 async def live(request: Request):
-    from fastapi.responses import HTMLResponse as _HR
-    resp = _HR(content=serve_html("index.html"))
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+    return frontend_redirect("/live")
 
-@app.get("/history", response_class=HTMLResponse)
+@app.get("/history")
 async def history(request: Request):
-    from fastapi.responses import HTMLResponse as _HR
-    resp = _HR(content=serve_html("history.html"))
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    return resp
+    return frontend_redirect("/history")
 
 
 @app.get("/api/sessions")
@@ -476,22 +514,28 @@ async def get_stats(request: Request):
     return JSONResponse(await cursor.to_list(length=500))
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/dashboard")
 async def dashboard(request: Request):
-    return serve_html("dashboard.html")
+    return frontend_redirect("/dashboard")
 
 
-@app.get("/studio", response_class=HTMLResponse)
+@app.get("/studio")
 async def studio(request: Request):
-    return serve_html("studio.html")
+    return frontend_redirect("/studio")
 
 
 @app.post("/api/sessions/{session_id}/translate")
-async def translate_session(session_id: str, body: dict):
+async def translate_session(session_id: str, body: dict, request: Request):
     """Translate a saved session transcript to a target language."""
     if db_collection is None:
         return JSONResponse({"error": "MongoDB not connected"}, status_code=503)
-    doc = await db_collection.find_one({"session_id": session_id}, {"_id": 0})
+    query = {"session_id": session_id}
+    if AUTH_AVAILABLE:
+        user = get_current_user(request)
+        if not user:
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        query["user_id"] = user["sub"]
+    doc = await db_collection.find_one(query, {"_id": 0})
     if not doc:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     target_lang = body.get("target_lang", "en")
@@ -508,7 +552,7 @@ async def translate_session(session_id: str, body: dict):
         return JSONResponse({"error": "Translation failed"}, status_code=500)
     # Save translated version
     await db_collection.update_one(
-        {"session_id": session_id},
+        query,
         {"$set": {f"translated_{target_lang}": translated}}
     )
     return JSONResponse({"translated": translated, "target_lang": target_lang, "cached": False})
@@ -801,7 +845,9 @@ async def save_to_mongo(session_id, started_at, language, mode,
 @app.post("/api/folders")
 async def create_folder(body: dict, request: Request):
     if db_client is None: return JSONResponse({"error":"DB not connected"},status_code=503)
-    user = {"sub":"local"}
+    user = get_current_user(request) if AUTH_AVAILABLE else {"sub":"local"}
+    if AUTH_AVAILABLE and not user:
+        return JSONResponse({"error":"Unauthorized"},status_code=401)
     folders_col = db_client[MONGO_DB]["folders"]
     folder = {
         "folder_id":  secrets.token_hex(8),
@@ -817,7 +863,9 @@ async def create_folder(body: dict, request: Request):
 @app.get("/api/folders")
 async def list_folders(request: Request):
     if db_client is None: return JSONResponse([])
-    user = {"sub":"local"}
+    user = get_current_user(request) if AUTH_AVAILABLE else {"sub":"local"}
+    if AUTH_AVAILABLE and not user:
+        return JSONResponse({"error":"Unauthorized"},status_code=401)
     folders_col = db_client[MONGO_DB]["folders"]
     cur = folders_col.find({"user_id": user["sub"]}, {"_id":0}).sort("created_at",1)
     return JSONResponse(await cur.to_list(length=100))
@@ -825,7 +873,9 @@ async def list_folders(request: Request):
 @app.delete("/api/folders/{folder_id}")
 async def delete_folder(folder_id: str, request: Request):
     if db_client is None: return JSONResponse({"error":"DB not connected"},status_code=503)
-    user = {"sub":"local"}
+    user = get_current_user(request) if AUTH_AVAILABLE else {"sub":"local"}
+    if AUTH_AVAILABLE and not user:
+        return JSONResponse({"error":"Unauthorized"},status_code=401)
     folders_col = db_client[MONGO_DB]["folders"]
     await folders_col.delete_one({"folder_id":folder_id,"user_id":user["sub"]})
     # Unassign sessions in this folder
@@ -835,7 +885,9 @@ async def delete_folder(folder_id: str, request: Request):
 @app.patch("/api/sessions/{session_id}/folder")
 async def assign_folder(session_id: str, body: dict, request: Request):
     if db_collection is None: return JSONResponse({"error":"DB not connected"},status_code=503)
-    user = {"sub":"local"}
+    user = get_current_user(request) if AUTH_AVAILABLE else {"sub":"local"}
+    if AUTH_AVAILABLE and not user:
+        return JSONResponse({"error":"Unauthorized"},status_code=401)
     folder_id = body.get("folder_id") or ""
     update = {"$set":{"folder_id":folder_id}} if folder_id else {"$unset":{"folder_id":""}}
     await db_collection.update_one({"session_id":session_id,"user_id":user["sub"]}, update)
@@ -848,7 +900,9 @@ async def assign_folder(session_id: str, body: dict, request: Request):
 @app.post("/api/sessions/{session_id}/share")
 async def toggle_share(session_id: str, body: dict, request: Request):
     if db_collection is None: return JSONResponse({"error":"DB not connected"},status_code=503)
-    user = {"sub":"local"}
+    user = get_current_user(request) if AUTH_AVAILABLE else {"sub":"local"}
+    if AUTH_AVAILABLE and not user:
+        return JSONResponse({"error":"Unauthorized"},status_code=401)
     enable = body.get("enable", True)
     if enable:
         token = secrets.token_urlsafe(24)
@@ -864,18 +918,22 @@ async def toggle_share(session_id: str, body: dict, request: Request):
         )
         return JSONResponse({"ok":True,"share_url":None})
 
-@app.get("/share/{token}", response_class=HTMLResponse)
+@app.get("/share/{token}")
 async def share_view(token: str):
-    if db_collection is None: return HTMLResponse("Not found", status_code=404)
-    doc = await db_collection.find_one({"share_token":token,"is_public":True},{"_id":0,"sentences":0,"user_id":0})
-    if not doc: return HTMLResponse("<h2>Link not found or sharing disabled.</h2>", status_code=404)
-    text = doc.get("corrected_transcript") or doc.get("transcript","")
-    summary_html = ""
-    if doc.get("summary"):
-        summary_html += f'<div class="summary-box" style="margin-bottom:12px;"><strong>AI Summary:</strong><br>{doc["summary"].replace(chr(10),"<br>")}</div>'
-    if doc.get("notes"):
-        summary_html += f'<div class="summary-box" style="border-color:#7c3aed;background:rgba(124,58,237,0.05);"><strong>AI Study Notes:</strong><br>{doc["notes"].replace(chr(10),"<br>")}</div>'
-    return serve_html("share.html").replace("__SESSION_JSON__", json.dumps(doc)).replace("__SUMMARY_HTML__", summary_html)
+    return frontend_redirect(f"/share/{token}")
+
+
+@app.get("/api/public/share/{token}")
+async def public_share_session(token: str):
+    if db_collection is None:
+        return JSONResponse({"error": "DB not connected"}, status_code=503)
+    doc = await db_collection.find_one(
+        {"share_token": token, "is_public": True},
+        {"_id": 0, "sentences": 0, "user_id": 0},
+    )
+    if not doc:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return JSONResponse(doc)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -884,7 +942,9 @@ async def share_view(token: str):
 @app.post("/api/webhooks")
 async def set_webhook(body: dict, request: Request):
     if users_col is None: return JSONResponse({"webhook_url":""},status_code=200)
-    user = {"sub":"local"}
+    user = get_current_user(request) if AUTH_AVAILABLE else {"sub":"local"}
+    if AUTH_AVAILABLE and not user:
+        return JSONResponse({"error":"Unauthorized"},status_code=401)
     url = (body.get("url") or "").strip()
     if url and not url.startswith("http"): return JSONResponse({"error":"Invalid URL"},status_code=400)
     await users_col.update_one({"user_id":user["sub"]},{"$set":{"webhook_url":url}})
@@ -893,7 +953,9 @@ async def set_webhook(body: dict, request: Request):
 @app.get("/api/webhooks")
 async def get_webhook(request: Request):
     if users_col is None: return JSONResponse({"webhook_url":""})
-    user = {"sub":"local"}
+    user = get_current_user(request) if AUTH_AVAILABLE else {"sub":"local"}
+    if AUTH_AVAILABLE and not user:
+        return JSONResponse({"error":"Unauthorized"},status_code=401)
     doc = await users_col.find_one({"user_id":user["sub"]},{"_id":0,"webhook_url":1})
     return JSONResponse({"webhook_url": doc.get("webhook_url","") if doc else ""})
 
@@ -925,12 +987,9 @@ async def is_admin(request: Request) -> bool:
     db_user = await users_col.find_one({"user_id": user["sub"]})
     return bool(db_user and db_user.get("is_admin"))
 
-@app.get("/admin", response_class=HTMLResponse)
+@app.get("/admin")
 async def admin_page(request: Request):
-    from fastapi.responses import HTMLResponse as _HR
-    resp = _HR(content=serve_html("admin.html"))
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    return resp
+    return frontend_redirect("/admin")
 
 @app.get("/api/admin/users")
 async def admin_list_users(request: Request):
@@ -1165,7 +1224,7 @@ async def v1_translate(
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     # Delegate to existing handler
-    return await translate_session(session_id, body)
+    return await translate_session(session_id, body, request)
 
 
 @app.get("/api/v1/me",

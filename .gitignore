@@ -65,3 +65,8 @@ venv.bak/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/next-start*.log
