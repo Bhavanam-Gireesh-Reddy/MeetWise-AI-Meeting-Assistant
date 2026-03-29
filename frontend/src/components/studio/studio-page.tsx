@@ -127,16 +127,16 @@ function StudioCard({
 }) {
   return (
     <section
-      className={`rounded-[30px] border border-white/70 bg-white/90 p-6 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur lg:p-7 ${className ?? ""}`}
+      className={`overflow-hidden rounded-[30px] border border-white/70 bg-white/90 p-6 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur lg:p-7 ${className ?? ""}`}
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-4">
         <div className="min-w-0">
           <h3 className="text-lg font-semibold text-slate-950">{title}</h3>
           {subtitle ? (
             <p className="mt-2 text-sm leading-6 text-slate-500">{subtitle}</p>
           ) : null}
         </div>
-        {actions ? <div className="shrink-0">{actions}</div> : null}
+        {actions ? <div className="self-start">{actions}</div> : null}
       </div>
       <div className={`mt-6 ${bodyClassName ?? ""}`}>{children}</div>
     </section>
@@ -485,7 +485,7 @@ export function StudioPageClient() {
   const currentQuiz = detail?.quiz?.questions?.[0];
 
   return (
-    <div className="grid gap-8 pb-8">
+    <div className="grid gap-8 overflow-x-hidden pb-8">
       <section className="rounded-[30px] border border-white/70 bg-white/90 p-7 shadow-[0_28px_70px_rgba(15,23,42,0.08)] backdrop-blur">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-700">
           Studio
@@ -506,8 +506,8 @@ export function StudioPageClient() {
         </div>
       ) : null}
 
-      <div className="grid items-start gap-8 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <aside className="space-y-5 xl:sticky xl:top-6">
+      <div className="grid items-start gap-8 2xl:grid-cols-[320px_minmax(0,1fr)]">
+        <aside className="space-y-5 2xl:sticky 2xl:top-6">
           <StudioCard
             subtitle={youtubeStatus}
             title="YouTube import"
@@ -632,7 +632,7 @@ export function StudioPageClient() {
             </div>
           ) : (
             <>
-              <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+              <section className="grid items-stretch gap-5 2xl:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
                 <StudioCard
                   subtitle={
                     detail.source_type === "youtube"
@@ -679,13 +679,13 @@ export function StudioPageClient() {
                 </div>
               </section>
 
-              <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
+              <section className="grid items-stretch gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.92fr)]">
                 <StudioCard
                   bodyClassName="h-full"
                   className="h-full"
                   title="Summary and notes"
                 >
-                  <pre className="h-full min-h-[340px] whitespace-pre-wrap rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
+                  <pre className="h-full min-h-[340px] whitespace-pre-wrap break-words rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
                     {[
                       detail.summary ? `SUMMARY\n${detail.summary}` : "",
                       detail.notes ? `NOTES\n${detail.notes}` : "",
@@ -712,7 +712,7 @@ export function StudioPageClient() {
                           <span className="flex h-fit min-w-[84px] items-center justify-center rounded-full bg-sky-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-700">
                             {speaker.speaker || "Speaker"}
                           </span>
-                          <p className="text-sm leading-7 text-slate-700">
+                          <p className="break-words text-sm leading-7 text-slate-700">
                             {speaker.text || ""}
                           </p>
                         </div>
@@ -783,11 +783,11 @@ export function StudioPageClient() {
                   </div>
                 }
               >
-                <pre className="min-h-[220px] whitespace-pre-wrap rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
+                <pre className="min-h-[220px] whitespace-pre-wrap break-words rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
                   {translationValue || 'Choose a language and click "Generate".'}
                 </pre>
               </StudioCard>
-              <section className="grid items-stretch gap-5 xl:grid-cols-2">
+              <section className="grid items-stretch gap-5 2xl:grid-cols-2">
                 <StudioCard
                   bodyClassName="h-full"
                   className="h-full"
@@ -809,7 +809,7 @@ export function StudioPageClient() {
                     </div>
                   }
                 >
-                  <pre className="h-full min-h-[260px] whitespace-pre-wrap rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
+                  <pre className="h-full min-h-[260px] whitespace-pre-wrap break-words rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
                     {detail.rich_notes || "No rich notes generated yet."}
                   </pre>
                 </StudioCard>
@@ -837,12 +837,12 @@ export function StudioPageClient() {
                       <h4 className="mt-4 text-lg font-semibold text-slate-950">
                         {currentFlashcard.question || "Question"}
                       </h4>
-                      <p className="mt-4 text-sm leading-7 text-slate-700">
+                      <p className="mt-4 break-words text-sm leading-7 text-slate-700">
                         <span className="font-semibold text-slate-950">Answer:</span>{" "}
                         {currentFlashcard.answer || ""}
                       </p>
                       {currentFlashcard.explanation ? (
-                        <p className="mt-4 text-sm leading-7 text-slate-500">
+                        <p className="mt-4 break-words text-sm leading-7 text-slate-500">
                           {currentFlashcard.explanation}
                         </p>
                       ) : null}
@@ -889,7 +889,7 @@ export function StudioPageClient() {
                         ))}
                       </div>
                       {currentQuiz.explanation ? (
-                        <p className="mt-4 text-sm leading-7 text-slate-500">
+                        <p className="mt-4 break-words text-sm leading-7 text-slate-500">
                           {currentQuiz.explanation}
                         </p>
                       ) : null}
@@ -957,7 +957,7 @@ export function StudioPageClient() {
                         )}
                       </div>
                     </div>
-                    <pre className="min-h-[180px] whitespace-pre-wrap rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
+                    <pre className="min-h-[180px] whitespace-pre-wrap break-words rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
                       {detail.mind_map?.mermaid ||
                         "No mind map generated yet. Mermaid source will appear here."}
                     </pre>
