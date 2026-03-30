@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Download,
   FileText,
@@ -170,11 +172,13 @@ function MetricCard({
 function ActionButton({
   busy,
   children,
+  disabled = false,
   onClick,
   primary = false,
 }: {
   busy?: boolean;
   children: React.ReactNode;
+  disabled?: boolean;
   onClick: () => void;
   primary?: boolean;
 }) {
@@ -185,7 +189,7 @@ function ActionButton({
           ? "bg-slate-950 text-white hover:bg-slate-800"
           : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
       } disabled:cursor-not-allowed disabled:opacity-60`}
-      disabled={busy}
+      disabled={busy || disabled}
       onClick={onClick}
       type="button"
     >
@@ -193,6 +197,74 @@ function ActionButton({
       {children}
     </button>
   );
+}
+
+function cleanMindMapLabel(value: string) {
+  return value.replace(/\s+/g, " ").replace(/[`"]/g, "").trim();
+}
+
+function normalizeMindMapOutline(nodes: MindMapNode[] | undefined): MindMapNode[] {
+  if (!Array.isArray(nodes)) {
+    return [];
+  }
+
+  return nodes
+    .map((node) => ({
+      text: cleanMindMapLabel(String(node?.text ?? "")),
+      children: normalizeMindMapOutline(node?.children),
+    }))
+    .filter((node) => node.text);
+}
+
+function parseMindMapFromMermaid(mermaid: string | undefined, title: string): MindMapNode[] {
+  if (!mermaid?.trim()) {
+    return [];
+  }
+
+  const lines = mermaid
+    .replace(/^mindmap\s*/i, "")
+    .split("\n")
+    .map((line) => line.replace(/\r/g, "").replace(/\t/g, "  "))
+    .filter((line) => line.trim());
+
+  const root: MindMapNode[] = [];
+  const stack: Array<{ level: number; node: MindMapNode }> = [];
+
+  for (const rawLine of lines) {
+    const indent = rawLine.length - rawLine.trimStart().length;
+    const level = Math.max(Math.floor(indent / 2), 0);
+    const text = cleanMindMapLabel(
+      rawLine
+        .trim()
+        .replace(/^[A-Za-z0-9_]+\(\((.*)\)\)$/, "$1")
+        .replace(/^[A-Za-z0-9_]+\[(.*)\]$/, "$1")
+        .replace(/^[A-Za-z0-9_]+\{(.*)\}$/, "$1"),
+    );
+
+    if (!text) {
+      continue;
+    }
+
+    const node: MindMapNode = { text, children: [] };
+    while (stack.length && stack[stack.length - 1].level >= level) {
+      stack.pop();
+    }
+
+    if (!stack.length) {
+      root.push(node);
+    } else {
+      const parent = stack[stack.length - 1].node;
+      parent.children = [...(parent.children ?? []), node];
+    }
+
+    stack.push({ level, node });
+  }
+
+  const normalized = normalizeMindMapOutline(root);
+  if (normalized[0]?.text?.toLowerCase() === title.toLowerCase()) {
+    return normalizeMindMapOutline(normalized[0].children);
+  }
+  return normalized;
 }
 
 function MindMapPreview({
@@ -204,7 +276,13 @@ function MindMapPreview({
   mermaid?: string;
   outline?: MindMapNode[];
 }) {
-  if (!outline?.length) {
+  const normalizedOutline = normalizeMindMapOutline(outline);
+  const derivedOutline =
+    normalizedOutline.length > 0
+      ? normalizedOutline
+      : parseMindMapFromMermaid(mermaid, title);
+
+  if (!derivedOutline.length) {
     return (
       <pre className="min-h-[260px] whitespace-pre-wrap break-words rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
         {mermaid || "No mind map generated yet."}
@@ -221,7 +299,7 @@ function MindMapPreview({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        {outline.map((node, index) => (
+        {derivedOutline.map((node, index) => (
           <div
             key={`${node.text ?? "branch"}-${index}`}
             className="rounded-[28px] border border-slate-200 bg-slate-50 p-5"
@@ -294,6 +372,8 @@ export function StudioPageClient() {
   const [youtubeCookies, setYoutubeCookies] = useState("");
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
+  const [flashcardIndex, setFlashcardIndex] = useState(0);
+  const [quizIndex, setQuizIndex] = useState(0);
   const [isHostedEnvironment, setIsHostedEnvironment] = useState(false);
   const [youtubeStatus, setYoutubeStatus] = useState(
     "Import a YouTube transcript and turn it into a normal study session.",
@@ -383,6 +463,8 @@ export function StudioPageClient() {
       startTransition(() => {
         setDetail(payload);
         setChatHistory(Array.isArray(payload.chat_history) ? payload.chat_history : []);
+        setFlashcardIndex(0);
+        setQuizIndex(0);
       });
     } catch (sessionError) {
       setError(
@@ -412,8 +494,14 @@ export function StudioPageClient() {
         body: JSON.stringify({}),
       });
       const payload = await readJson<Record<string, unknown>>(response);
-      if (kind === "flashcards") updateDetail({ flashcards: (payload.flashcards as SessionDetail["flashcards"]) ?? [] });
-      if (kind === "quiz") updateDetail({ quiz: (payload.quiz as SessionDetail["quiz"]) ?? null });
+      if (kind === "flashcards") {
+        setFlashcardIndex(0);
+        updateDetail({ flashcards: (payload.flashcards as SessionDetail["flashcards"]) ?? [] });
+      }
+      if (kind === "quiz") {
+        setQuizIndex(0);
+        updateDetail({ quiz: (payload.quiz as SessionDetail["quiz"]) ?? null });
+      }
       if (kind === "podcast") updateDetail({ podcast: (payload.podcast as SessionDetail["podcast"]) ?? null });
       if (kind === "mindmap") updateDetail({ mind_map: (payload.mind_map as SessionDetail["mind_map"]) ?? null });
       if (kind === "rich_notes") updateDetail({ rich_notes: (payload.rich_notes as string) ?? "" });
@@ -572,8 +660,10 @@ export function StudioPageClient() {
     detail && translationTarget !== "same"
       ? String(detail[`translated_${translationTarget}`] ?? "")
       : transcript || detail?.summary || "";
-  const currentFlashcard = detail?.flashcards?.[0];
-  const currentQuiz = detail?.quiz?.questions?.[0];
+  const flashcards = detail?.flashcards ?? [];
+  const quizQuestions = detail?.quiz?.questions ?? [];
+  const currentFlashcard = flashcards[flashcardIndex];
+  const currentQuiz = quizQuestions[quizIndex];
 
   return (
     <div className="grid gap-8 overflow-x-hidden pb-8">
@@ -878,52 +968,72 @@ export function StudioPageClient() {
                   {translationValue || 'Choose a language and click "Generate".'}
                 </pre>
               </StudioCard>
-              <section className="grid items-stretch gap-5 xl:grid-cols-2">
-                <StudioCard
-                  bodyClassName="h-full"
-                  className="h-full"
-                  title="Rich notes"
-                  subtitle="Extract detailed study notes from the selected session."
-                  actions={
-                    <div className="flex flex-wrap gap-3">
-                      <ActionButton
-                        busy={busyKey === "rich_notes"}
-                        onClick={() => void generateArtifact("rich_notes")}
-                      >
-                        <FileText className="h-4 w-4" />
-                        Generate
-                      </ActionButton>
-                      <ActionButton onClick={() => void copyRichNotes()}>
-                        <Copy className="h-4 w-4" />
-                        Copy
-                      </ActionButton>
-                    </div>
-                  }
-                >
-                  <pre className="h-full min-h-[260px] whitespace-pre-wrap break-words rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
-                    {detail.rich_notes || "No rich notes generated yet."}
-                  </pre>
-                </StudioCard>
+              <StudioCard
+                bodyClassName="h-full"
+                className="h-full"
+                title="Rich notes"
+                subtitle="Extract detailed study notes from the selected session."
+                actions={
+                  <div className="flex flex-wrap gap-3">
+                    <ActionButton
+                      busy={busyKey === "rich_notes"}
+                      onClick={() => void generateArtifact("rich_notes")}
+                    >
+                      <FileText className="h-4 w-4" />
+                      Generate
+                    </ActionButton>
+                    <ActionButton onClick={() => void copyRichNotes()}>
+                      <Copy className="h-4 w-4" />
+                      Copy
+                    </ActionButton>
+                  </div>
+                }
+              >
+                <pre className="min-h-[280px] whitespace-pre-wrap break-words rounded-3xl border border-slate-200 bg-slate-50 p-5 font-mono text-sm leading-7 text-slate-700">
+                  {detail.rich_notes || "No rich notes generated yet."}
+                </pre>
+              </StudioCard>
 
+              <section className="grid items-stretch gap-5 xl:grid-cols-2">
                 <StudioCard
                   bodyClassName="h-full"
                   className="h-full"
                   title="Flashcards"
                   subtitle="Create revision cards grounded in the transcript."
                   actions={
-                    <ActionButton
-                      busy={busyKey === "flashcards"}
-                      onClick={() => void generateArtifact("flashcards")}
-                    >
-                      <GraduationCap className="h-4 w-4" />
-                      Generate
-                    </ActionButton>
+                    <div className="flex flex-wrap gap-3">
+                      <ActionButton
+                        busy={busyKey === "flashcards"}
+                        onClick={() => void generateArtifact("flashcards")}
+                      >
+                        <GraduationCap className="h-4 w-4" />
+                        Generate
+                      </ActionButton>
+                      <ActionButton
+                        disabled={flashcardIndex === 0 || !flashcards.length}
+                        onClick={() => setFlashcardIndex((current) => Math.max(current - 1, 0))}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Prev
+                      </ActionButton>
+                      <ActionButton
+                        disabled={!flashcards.length || flashcardIndex >= flashcards.length - 1}
+                        onClick={() =>
+                          setFlashcardIndex((current) =>
+                            Math.min(current + 1, Math.max(flashcards.length - 1, 0)),
+                          )
+                        }
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </ActionButton>
+                    </div>
                   }
                 >
                   {currentFlashcard ? (
                     <div className="h-full rounded-3xl border border-slate-200 bg-slate-50 p-5">
                       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
-                        First card
+                        Card {flashcardIndex + 1} of {flashcards.length}
                       </p>
                       <h4 className="mt-4 text-lg font-semibold text-slate-950">
                         {currentFlashcard.question || "Question"}
@@ -951,17 +1061,40 @@ export function StudioPageClient() {
                   title="Quiz"
                   subtitle="Build a transcript-grounded multiple-choice quiz."
                   actions={
-                    <ActionButton
-                      busy={busyKey === "quiz"}
-                      onClick={() => void generateArtifact("quiz")}
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Generate
-                    </ActionButton>
+                    <div className="flex flex-wrap gap-3">
+                      <ActionButton
+                        busy={busyKey === "quiz"}
+                        onClick={() => void generateArtifact("quiz")}
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Generate
+                      </ActionButton>
+                      <ActionButton
+                        disabled={quizIndex === 0 || !quizQuestions.length}
+                        onClick={() => setQuizIndex((current) => Math.max(current - 1, 0))}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Prev
+                      </ActionButton>
+                      <ActionButton
+                        disabled={!quizQuestions.length || quizIndex >= quizQuestions.length - 1}
+                        onClick={() =>
+                          setQuizIndex((current) =>
+                            Math.min(current + 1, Math.max(quizQuestions.length - 1, 0)),
+                          )
+                        }
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </ActionButton>
+                    </div>
                   }
                 >
                   {currentQuiz ? (
                     <div className="h-full rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
+                        Question {quizIndex + 1} of {quizQuestions.length}
+                      </p>
                       <h4 className="text-lg font-semibold text-slate-950">
                         {currentQuiz.question || "Quiz question"}
                       </h4>
@@ -991,53 +1124,51 @@ export function StudioPageClient() {
                     </div>
                   )}
                 </StudioCard>
-
-                <StudioCard
-                  bodyClassName="h-full"
-                  className="h-full"
-                  title="Podcast"
-                  subtitle="Generate a compact spoken recap from the selected transcript."
-                  actions={
-                    <div className="flex flex-wrap gap-3">
-                      <ActionButton
-                        busy={busyKey === "podcast"}
-                        onClick={() => void generateArtifact("podcast")}
-                      >
-                        <Mic2 className="h-4 w-4" />
-                        Generate
-                      </ActionButton>
-                      <ActionButton onClick={playPodcast}>
-                        <PlayCircle className="h-4 w-4" />
-                        Play script
-                      </ActionButton>
-                    </div>
-                  }
-                >
-                  <div className="flex h-full flex-col gap-4">
-                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                      <div className="space-y-3">
-                        {detail.podcast?.script?.length ? (
-                          detail.podcast.script.slice(0, 4).map((line, index) => (
-                            <div
-                              key={`${line.speaker ?? "speaker"}-${index}`}
-                              className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-7 text-slate-700"
-                            >
-                              <span className="font-semibold text-slate-950">
-                                {line.speaker || "Host"}:
-                              </span>{" "}
-                              {line.line || ""}
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-slate-500">
-                            No podcast script generated yet.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </StudioCard>
               </section>
+
+              <StudioCard
+                bodyClassName="h-full"
+                className="h-full"
+                title="Podcast"
+                subtitle="Generate a compact spoken recap from the selected transcript."
+                actions={
+                  <div className="flex flex-wrap gap-3">
+                    <ActionButton
+                      busy={busyKey === "podcast"}
+                      onClick={() => void generateArtifact("podcast")}
+                    >
+                      <Mic2 className="h-4 w-4" />
+                      Generate
+                    </ActionButton>
+                    <ActionButton onClick={playPodcast}>
+                      <PlayCircle className="h-4 w-4" />
+                      Play script
+                    </ActionButton>
+                  </div>
+                }
+              >
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    {detail.podcast?.script?.length ? (
+                      detail.podcast.script.slice(0, 6).map((line, index) => (
+                        <div
+                          key={`${line.speaker ?? "speaker"}-${index}`}
+                          className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-7 text-slate-700"
+                        >
+                          <span className="font-semibold text-slate-950">
+                            {line.speaker || "Host"}:
+                          </span>{" "}
+                          {line.line || ""}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-slate-500">
+                        No podcast script generated yet.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </StudioCard>
 
               <StudioCard
                 title="Mind map"
