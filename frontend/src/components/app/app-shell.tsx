@@ -21,10 +21,10 @@ export function AppShell({ children, user }: AppShellProps) {
             </span>
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-700">
-                Sarvam AI
+                MeetWise AI
               </p>
               <h1 className="text-xl font-semibold tracking-[-0.03em] text-slate-950">
-                Next.js Workspace
+                Meeting Assistant
               </h1>
             </div>
           </div>

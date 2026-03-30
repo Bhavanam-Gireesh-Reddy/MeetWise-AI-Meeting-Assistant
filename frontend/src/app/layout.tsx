@@ -16,8 +16,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Sarvam AI",
-  description: "Next.js frontend foundation for Sarvam AI",
+  title: "MeetWise AI",
+  description: "AI-powered real-time meeting transcription and summarization",
 };
 
 export default function RootLayout({

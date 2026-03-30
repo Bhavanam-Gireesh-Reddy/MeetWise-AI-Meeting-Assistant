@@ -53,7 +53,7 @@ export function AuthShell({
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-white">
                 <AudioWaveform className="h-4 w-4" />
               </span>
-              Sarvam AI
+              MeetWise AI
             </div>
 
             <div className="space-y-5">

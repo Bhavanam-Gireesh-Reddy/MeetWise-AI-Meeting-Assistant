@@ -123,7 +123,7 @@ export function LoginForm() {
       </form>
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-        New to Sarvam AI?{" "}
+        New to MeetWise AI?{" "}
         <Link className="font-semibold text-sky-700 hover:text-sky-900" href="/register">
           Create your account
         </Link>

@@ -162,7 +162,7 @@ export function HistoryPage() {
 
   function handleEmailShare(session: SessionRecord) {
     const subject = encodeURIComponent(
-      session.title || "Sarvam AI transcript",
+      session.title || "MeetWise AI transcript",
     );
     const body = encodeURIComponent(
       `${session.summary ? `${session.summary}\n\n` : ""}${getPrimaryTranscript(session).slice(0, 2800)}`,
@@ -172,7 +172,7 @@ export function HistoryPage() {
 
   function handleWhatsappShare(session: SessionRecord) {
     const body = encodeURIComponent(
-      `${session.title || "Sarvam AI transcript"}\n\n${(session.summary || getPrimaryTranscript(session)).slice(0, 1400)}`,
+      `${session.title || "MeetWise AI transcript"}\n\n${(session.summary || getPrimaryTranscript(session)).slice(0, 1400)}`,
     );
     window.open(`https://wa.me/?text=${body}`, "_blank");
   }
