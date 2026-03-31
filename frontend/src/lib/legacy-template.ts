@@ -97,13 +97,22 @@ export async function buildLegacyLiveHtml(authToken: string) {
     "const uploadToken = localStorage.getItem('auth_token') || '';",
     `const uploadToken = ${JSON.stringify(authToken)};`,
   );
+  // Ensure WebSocket connections target the backend directly
   html = html.replaceAll(
-    "${wsProto}//${location.host}/ws/translate",
-    `${backendWsBase}/ws/translate`,
+    "`${proto}://${location.host}/ws/translate",
+    `\`${backendWsBase}/ws/translate`
   );
   html = html.replaceAll(
-    "${proto}://${location.host}/ws/translate",
-    `${backendWsBase}/ws/translate`,
+    '"${proto}://${location.host}/ws/translate',
+    `"${backendWsBase}/ws/translate`
+  );
+  html = html.replaceAll(
+    "'${proto}://${location.host}/ws/translate",
+    `'${backendWsBase}/ws/translate`
+  );
+  html = html.replaceAll(
+    "${wsProto}//${location.host}/ws/translate",
+    `${backendWsBase}/ws/translate`
   );
   html = html.replaceAll("window.location.href =", "window.top.location.href =");
 

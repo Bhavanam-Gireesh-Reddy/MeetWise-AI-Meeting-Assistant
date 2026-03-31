@@ -38,8 +38,8 @@ export function useSessions() {
 
     try {
       const [sessionsResponse, foldersResponse] = await Promise.all([
-        fetch("/api/proxy/v1/sessions?page=1&limit=100", { cache: "no-store" }),
-        fetch("/api/proxy/folders", { cache: "no-store" }),
+        fetch("/api/sessions?page=1&limit=100", { cache: "no-store" }),
+        fetch("/api/folders", { cache: "no-store" }),
       ]);
 
       const sessionsPayload = await readJson<SessionsResponse>(sessionsResponse);
@@ -67,7 +67,7 @@ export function useSessions() {
   }, []);
 
   async function deleteSession(sessionId: string) {
-    const response = await fetch(`/api/proxy/v1/sessions/${sessionId}`, {
+    const response = await fetch(`/api/sessions/${sessionId}`, {
       method: "DELETE",
     });
 
@@ -79,7 +79,7 @@ export function useSessions() {
   }
 
   async function translateSession(sessionId: string, targetLang: string) {
-    const response = await fetch(`/api/proxy/v1/sessions/${sessionId}/translate`, {
+    const response = await fetch(`/api/sessions/${sessionId}/translate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -104,7 +104,7 @@ export function useSessions() {
   }
 
   async function assignFolder(sessionId: string, folderId: string) {
-    const response = await fetch(`/api/proxy/sessions/${sessionId}/folder`, {
+    const response = await fetch(`/api/sessions/${sessionId}/folder`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -127,7 +127,7 @@ export function useSessions() {
   }
 
   async function createFolder(name: string, color: string) {
-    const response = await fetch("/api/proxy/folders", {
+    const response = await fetch("/api/folders", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -141,7 +141,7 @@ export function useSessions() {
   }
 
   async function toggleShare(sessionId: string, enable: boolean) {
-    const response = await fetch(`/api/proxy/sessions/${sessionId}/share`, {
+    const response = await fetch(`/api/sessions/${sessionId}/share`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
