@@ -483,7 +483,7 @@ async def get_sessions(request: Request):
     query  = build_user_query(request, {})
     cursor = db_collection.find(query, {"_id": 0}).sort("started_at", -1).limit(50)
     sessions = await cursor.to_list(length=50)
-    return JSONResponse(sessions)
+    return JSONResponse({"sessions": sessions})
 
 
 @app.get("/api/search")
@@ -494,7 +494,8 @@ async def search_sessions(request: Request, q: str = "", field: str = "all"):
     base_query = build_user_query(request, {})
     if not q.strip():
         cursor = db_collection.find(base_query, {"_id": 0}).sort("started_at", -1).limit(100)
-        return JSONResponse(await cursor.to_list(length=100))
+        sessions = await cursor.to_list(length=100)
+        return JSONResponse({"sessions": sessions})
     pattern = {"$regex": q, "$options": "i"}
     text_query = {"$or": [
         {"transcript": pattern}, {"corrected_transcript": pattern},
@@ -502,7 +503,8 @@ async def search_sessions(request: Request, q: str = "", field: str = "all"):
     ]} if field == "all" else {field: pattern}
     query  = {"$and": [base_query, text_query]} if base_query else text_query
     cursor = db_collection.find(query, {"_id": 0}).sort("started_at", -1).limit(100)
-    return JSONResponse(await cursor.to_list(length=100))
+    sessions = await cursor.to_list(length=100)
+    return JSONResponse({"sessions": sessions})
 
 
 @app.get("/api/stats")
