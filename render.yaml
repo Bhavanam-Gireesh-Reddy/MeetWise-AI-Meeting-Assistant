@@ -1,4 +1,5 @@
 services:
+  # ── FastAPI Backend ──────────────────────────────────────────────────────────
   - type: web
     name: meetwise-api
     env: python
@@ -30,6 +31,10 @@ services:
         value: "false"
       - key: SECRET_KEY
         generateValue: true
+
+  # ── Next.js Frontend (Single Public URL) ─────────────────────────────────────
+  # All traffic comes here. /api/* is transparently proxied to meetwise-api
+  # via next.config.mjs rewrites — users only ever see ONE domain.
   - type: web
     name: meetwise-frontend
     env: node
@@ -37,10 +42,11 @@ services:
     rootDir: frontend
     buildCommand: npm ci && npm run build
     startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
-    healthCheckPath: /api/health
+    healthCheckPath: /
     envVars:
       - key: NODE_VERSION
         value: 20.18.0
+      # This is the internal FastAPI URL — Next.js rewrites proxy to it server-side
       - key: BACKEND_URL
         fromService:
           type: web
