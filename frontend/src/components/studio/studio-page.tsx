@@ -407,10 +407,11 @@ export function StudioPageClient() {
     async function initializeStudio() {
       try {
         const response = await fetch("/api/sessions", { cache: "no-store" });
-        const payload = await readJson<SessionItem[]>(response);
-        startTransition(() => setSessions(Array.isArray(payload) ? payload : []));
+        const payload = await readJson<{ sessions: SessionItem[] }>(response);
+        const fetchedSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+        startTransition(() => setSessions(fetchedSessions));
 
-        const firstSessionId = payload[0]?.session_id;
+        const firstSessionId = fetchedSessions[0]?.session_id;
         if (!firstSessionId) {
           return;
         }
@@ -443,9 +444,10 @@ export function StudioPageClient() {
   async function loadSessions(preferredId?: string) {
     setError("");
     const response = await fetch("/api/sessions", { cache: "no-store" });
-    const payload = await readJson<SessionItem[]>(response);
-    startTransition(() => setSessions(Array.isArray(payload) ? payload : []));
-    const nextId = preferredId ?? selectedId ?? payload[0]?.session_id ?? null;
+    const payload = await readJson<{ sessions: SessionItem[] }>(response);
+    const fetchedSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+    startTransition(() => setSessions(fetchedSessions));
+    const nextId = preferredId ?? selectedId ?? fetchedSessions[0]?.session_id ?? null;
     if (nextId) {
       await openSession(nextId);
     }
