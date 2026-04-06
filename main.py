@@ -24,7 +24,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, H
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-import razorpay_service
 
 # ── Load .env file from project directory ────────────────────────────────────
 import pathlib as _pathlib
@@ -1438,69 +1437,6 @@ async def broadcast_event(session_id: str, client_ws: WebSocket, message: dict):
         pass
 
 
-
-# ── Payments ──────────────────────────────────────────────────────────────────
-@app.post("/api/payments/create")
-async def create_payment(body: dict, request: Request):
-    """Creates a Razorpay Order (lifetime) or Subscription (monthly)."""
-    user = await require_api_auth(request)
-    if not user:
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    plan_type = body.get("type", "lifetime") # 'lifetime' or 'monthly'
-    user_id = user.get("sub", "local")
-
-    try:
-        if plan_type == "monthly":
-            res = razorpay_service.create_monthly_subscription(
-                plan_id=os.getenv("RAZORPAY_PLAN_ID_PRO", "plan_fake_123"),
-                user_id=user_id
-            )
-        else:
-            res = razorpay_service.create_one_time_order(amount_in_inr=999, user_id=user_id)
-        
-        # Include key_id for frontend initialization
-        res["key_id"] = razorpay_service.RAZORPAY_KEY_ID
-        return JSONResponse({"ok": True, "data": res})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-@app.post("/api/payments/verify")
-async def verify_payment(body: dict, request: Request):
-    """Verifies Razorpay signature and upgrades user to Pro status."""
-    user = await require_api_auth(request)
-    if not user:
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    user_id = user.get("sub", "local")
-    razorpay_payment_id = body.get("razorpay_payment_id")
-    razorpay_signature = body.get("razorpay_signature")
-    razorpay_order_id = body.get("razorpay_order_id")
-    razorpay_subscription_id = body.get("razorpay_subscription_id")
-
-    verified = False
-    if razorpay_order_id:
-        verified = razorpay_service.verify_payment_signature(
-            razorpay_order_id, razorpay_payment_id, razorpay_signature
-        )
-    elif razorpay_subscription_id:
-        verified = razorpay_service.verify_subscription_signature(
-            razorpay_subscription_id, razorpay_payment_id, razorpay_signature
-        )
-
-    if not verified:
-        return JSONResponse({"error": "Invalid signature"}, status_code=400)
-
-    if users_col is not None and user_id != "local":
-        update_data = {
-            "is_pro": True,
-            "pro_since": datetime.now(timezone.utc).isoformat(),
-            "last_payment_id": razorpay_payment_id
-        }
-        if razorpay_subscription_id:
-            update_data["subscription_id"] = razorpay_subscription_id
-        await users_col.update_one({"user_id": user_id}, {"$set": update_data})
-    return JSONResponse({"ok": True, "message": "Payment verified. You are now PRO!"})
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 @app.websocket("/ws/diarize")
