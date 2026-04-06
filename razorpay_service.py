@@ -30,7 +30,7 @@ if MOCK_MODE:
 
 # ── One-Time Order (Lifetime Pro) ─────────────────────────────────────────────
 def create_one_time_order(amount_in_inr: int, user_id: str):
-    \"\"\"Creates a Razorpay Order for one-time payment (Amount in paise).\"\"\"
+    """Creates a Razorpay Order for one-time payment (Amount in paise)."""
     if MOCK_MODE:
         return {
             "id": f"order_mock_{os.urandom(8).hex()}",
@@ -53,7 +53,7 @@ def create_one_time_order(amount_in_inr: int, user_id: str):
 
 # ── Recurring Subscription (Monthly Pro) ──────────────────────────────────────
 def create_monthly_subscription(plan_id: str, user_id: str):
-    \"\"\"Creates a Razorpay Subscription for recurring payment.\"\"\"
+    """Creates a Razorpay Subscription for recurring payment."""
     if MOCK_MODE:
         return {
             "id": f"sub_mock_{os.urandom(8).hex()}",
@@ -76,7 +76,7 @@ def create_monthly_subscription(plan_id: str, user_id: str):
 
 # ── Verification ───────────────────────────────────────────────────────────────
 def verify_payment_signature(razorpay_order_id, razorpay_payment_id, razorpay_signature):
-    \"\"\"Verifies the signature sent by Razorpay Checkout for one-time orders.\"\"\"
+    """Verifies the signature sent by Razorpay Checkout for one-time orders."""
     if MOCK_MODE and razorpay_signature == "mock_signature":
         return True
     
@@ -94,7 +94,7 @@ def verify_payment_signature(razorpay_order_id, razorpay_payment_id, razorpay_si
         return False
 
 def verify_subscription_signature(razorpay_subscription_id, razorpay_payment_id, razorpay_signature):
-    \"\"\"Verifies the signature for recurring subscriptions.\"\"\"
+    """Verifies the signature for recurring subscriptions."""
     if MOCK_MODE and razorpay_signature == "mock_signature":
         return True
         
