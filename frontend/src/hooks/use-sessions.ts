@@ -177,7 +177,12 @@ export function useSessions() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
-    const payload = await readJson<{ action_items: unknown[] }>(response);
+    interface ActionItem {
+      description: string;
+      assignee: string;
+      deadline: string;
+    }
+    const payload = await readJson<{ action_items: ActionItem[] }>(response);
     setSessions((current) =>
       current.map((session) =>
         session.session_id === sessionId
