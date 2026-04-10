@@ -1496,13 +1496,17 @@ grok -> Groq"></textarea>
       }
 
       // Open WebSocket
+      // NOTE: The base URL pattern MUST stay as `${wsProto}//${location.host}${wsEndpoint}`
+      // so that legacy-template.ts can replace `location.host` with the actual backend
+      // host on Render (meetwise-api.onrender.com). Auth token is appended AFTER.
       const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const authToken = localStorage.getItem('auth_token') || '';
-      // IMPORTANT: Only use /ws/diarize (Deepgram) when Speaker ID is explicitly enabled.
-      // Share Audio alone uses /ws/translate (Sarvam) — no Deepgram required.
+      // Only use /ws/diarize (Deepgram/Pro) when Speaker ID toggle is explicitly ON.
+      // Share Audio toggle alone always uses /ws/translate (Sarvam — no Deepgram needed).
       const diarizeEnabled2 = document.getElementById('diarizeToggle').checked;
       const wsEndpoint = diarizeEnabled2 ? '/ws/diarize' : '/ws/translate';
-      const wsUrl = `${wsProto}//${location.host}${wsEndpoint}${authToken ? '?token=' + encodeURIComponent(authToken) : ''}`;
+      const wsBaseUrl = `${wsProto}//${location.host}${wsEndpoint}`;
+      const wsUrl = wsBaseUrl + (authToken ? '?token=' + encodeURIComponent(authToken) : '');
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 

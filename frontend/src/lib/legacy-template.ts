@@ -97,20 +97,22 @@ export async function buildLegacyLiveHtml(authToken: string) {
     "const uploadToken = localStorage.getItem('auth_token') || '';",
     `const uploadToken = ${JSON.stringify(authToken)};`,
   );
-  // Ensure WebSocket connections target the backend directly
-  const wsReplacements = [
-    ["`${proto}://${location.host}/ws/translate", `\`${backendWsBase}/ws/translate`],
-    ['"${proto}://${location.host}/ws/translate', `"${backendWsBase}/ws/translate`],
-    ["'${proto}://${location.host}/ws/translate", `'${backendWsBase}/ws/translate`],
-    ["${wsProto}//${location.host}/ws/translate", `${backendWsBase}/ws/translate`],
-    
-    // New dynamic endpoint replacements
+  // Ensure WebSocket connections target the backend directly.
+  // These patterns must exactly match the string literals used in legacy/index.html.
+  // The wsBaseUrl variable is used to ensure the host part is isolated for replacement.
+  const wsReplacements: Array<[string, string]> = [
+    // Primary pattern: wsBaseUrl = `${wsProto}//${location.host}${wsEndpoint}`
+    ["`${wsProto}//${location.host}${wsEndpoint}`", `\`${backendWsBase}\${wsEndpoint}\``],
+
+    // Legacy fallbacks (kept for backward compatibility)
     ["`${wsProto}//${location.host}${wsEndpoint}", `\`${backendWsBase}\${wsEndpoint}`],
-    ["${wsProto}//${location.host}${wsEndpoint}", `${backendWsBase}\${wsEndpoint}`]
+    ["${wsProto}//${location.host}${wsEndpoint}", `${backendWsBase}\${wsEndpoint}`],
+    ["`${proto}://${location.host}/ws/translate", `\`${backendWsBase}/ws/translate`],
+    ["${wsProto}//${location.host}/ws/translate", `${backendWsBase}/ws/translate`],
   ];
-  
-  for (const repl of wsReplacements) {
-    html = html.replaceAll(repl[0], repl[1]);
+
+  for (const [from, to] of wsReplacements) {
+    html = html.replaceAll(from, to);
   }
   html = html.replaceAll("window.location.href =", "window.top.location.href =");
 
