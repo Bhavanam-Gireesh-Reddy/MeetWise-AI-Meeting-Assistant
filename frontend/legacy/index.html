@@ -1505,8 +1505,17 @@ grok -> Groq"></textarea>
       // Share Audio toggle alone always uses /ws/translate (Sarvam — no Deepgram needed).
       const diarizeEnabled2 = document.getElementById('diarizeToggle').checked;
       const wsEndpoint = diarizeEnabled2 ? '/ws/diarize' : '/ws/translate';
-      const wsBaseUrl = `${wsProto}//${location.host}${wsEndpoint}`;
+      
+      let wsTargetHost = location.host;
+      let wsTargetProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      if (window.NEXT_PUBLIC_API_URL) {
+        wsTargetHost = window.NEXT_PUBLIC_API_URL.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        wsTargetProto = window.NEXT_PUBLIC_API_URL.startsWith('http://') ? 'ws:' : 'wss:';
+      }
+      
+      const wsBaseUrl = `${wsTargetProto}//${wsTargetHost}${wsEndpoint}`;
       const wsUrl = wsBaseUrl + (authToken ? '?token=' + encodeURIComponent(authToken) : '');
+      console.log('Connecting WebSocket to:', wsUrl);
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 

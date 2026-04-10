@@ -87,7 +87,7 @@ export async function buildLegacyLiveHtml(authToken: string) {
   const backendWsBase = getBackendWebSocketBase();
   let html = await loadLegacyTemplate("index.html");
 
-  html = html.replace("<head>", `<head><base target="_top">${liveLightThemeOverrides}`);
+  html = html.replace("<head>", `<head><base target="_top">${liveLightThemeOverrides}<script>window.NEXT_PUBLIC_API_URL = ${JSON.stringify(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")};</script>`);
   html = html.replace('<script src="/auth-helper.js"></script>', "");
   html = html.replace(
     "const authToken = localStorage.getItem('auth_token') || '';",
@@ -97,23 +97,7 @@ export async function buildLegacyLiveHtml(authToken: string) {
     "const uploadToken = localStorage.getItem('auth_token') || '';",
     `const uploadToken = ${JSON.stringify(authToken)};`,
   );
-  // Ensure WebSocket connections target the backend directly.
-  // These patterns must exactly match the string literals used in legacy/index.html.
-  // The wsBaseUrl variable is used to ensure the host part is isolated for replacement.
-  const wsReplacements: Array<[string, string]> = [
-    // Primary pattern: wsBaseUrl = `${wsProto}//${location.host}${wsEndpoint}`
-    ["`${wsProto}//${location.host}${wsEndpoint}`", `\`${backendWsBase}\${wsEndpoint}\``],
-
-    // Legacy fallbacks (kept for backward compatibility)
-    ["`${wsProto}//${location.host}${wsEndpoint}", `\`${backendWsBase}\${wsEndpoint}`],
-    ["${wsProto}//${location.host}${wsEndpoint}", `${backendWsBase}\${wsEndpoint}`],
-    ["`${proto}://${location.host}/ws/translate", `\`${backendWsBase}/ws/translate`],
-    ["${wsProto}//${location.host}/ws/translate", `${backendWsBase}/ws/translate`],
-  ];
-
-  for (const [from, to] of wsReplacements) {
-    html = html.replaceAll(from, to);
-  }
+  
   html = html.replaceAll("window.location.href =", "window.top.location.href =");
 
   return html;
