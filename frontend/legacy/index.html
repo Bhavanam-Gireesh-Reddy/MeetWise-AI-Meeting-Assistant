@@ -549,6 +549,16 @@
       padding: 0 4px;
     }
 
+    /* ── Wave canvas ─────────────────────────────────────── */
+    .wave-canvas {
+      width: 100%;
+      height: 54px;
+      display: block;
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.015);
+      border: 1px solid var(--border);
+    }
+
     /* ── Download dropdown ───────────────────────────────── */
     .export-dropdown {
       position: relative;
@@ -1205,6 +1215,10 @@
           <span id="statusText">Idle</span>
         </div>
       </div>
+      <!-- Volume meter -->
+      <div class="vol-meter">
+        <div class="vol-fill" id="volFill"></div>
+      </div>
 
       <!-- Waveform visualizer -->
       <canvas id="waveCanvas" class="wave-canvas" width="800" height="54"></canvas>
@@ -1363,6 +1377,7 @@ grok -> Groq"></textarea>
     let mediaStream = null;
     let audioContext = null;
     let processor = null;
+    let processorSink = null;
     let analyser = null;
     let startTime = null;
     let durationInterval = null;
@@ -1450,6 +1465,7 @@ grok -> Groq"></textarea>
       if (es && transcriptLog.length > 0) es.remove();
 
       // Request mic / screen audio
+      let captureSystemAudio = false;
       try {
         const audioConstraints = {
           sampleRate: 16000,
@@ -1460,15 +1476,17 @@ grok -> Groq"></textarea>
         };
         const diarizeEnabled = document.getElementById('diarizeToggle').checked;
         const shareAudioEnabled = document.getElementById('shareAudioToggle') && document.getElementById('shareAudioToggle').checked;
-        const captureSystemAudio = shareAudioEnabled || diarizeEnabled;
+        captureSystemAudio = shareAudioEnabled || diarizeEnabled;
 
         if (captureSystemAudio) {
-          // ── Share Audio mode: capture display (system) audio + mic, mix them ──
+          // ── Share Audio / Diarize mode: capture display (system) audio + mic, mix them ──
           showToast('📡 Select the tab/window to share — check "Share audio" in the dialog!', 'info');
+          // Browser/tab audio capture generally requires selecting a display surface.
+          // Request video too, then immediately stop the video track after capture.
           _displayStream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
           _micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
 
-          // Use the global audioContext for mixing (critical: keeps the context alive)
+          // Create mixing AudioContext at 16kHz
           audioContext = new AudioContext({ sampleRate: 16000 });
           const dest = audioContext.createMediaStreamDestination();
 
@@ -1481,9 +1499,11 @@ grok -> Groq"></textarea>
             showToast('⚠️ No tab audio detected — check "Share audio" was ticked in the dialog.', 'error');
           }
 
-          mediaStream = dest.stream;
-          // Stop video tracks — we only need audio
+          // We only need the audio track after the chooser completes.
           _displayStream.getVideoTracks().forEach(track => track.stop());
+
+          // Use the destination stream as media input
+          mediaStream = dest.stream;
         } else {
           // ── Normal mic-only mode ──
           mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
@@ -1499,12 +1519,11 @@ grok -> Groq"></textarea>
       // NOTE: The base URL pattern MUST stay as `${wsProto}//${location.host}${wsEndpoint}`
       // so that legacy-template.ts can replace `location.host` with the actual backend
       // host on Render (meetwise-api.onrender.com). Auth token is appended AFTER.
-      const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const authToken = localStorage.getItem('auth_token') || '';
-      // Only use /ws/diarize (Deepgram/Pro) when Speaker ID toggle is explicitly ON.
-      // Share Audio toggle alone always uses /ws/translate (Sarvam — no Deepgram needed).
       const diarizeEnabled2 = document.getElementById('diarizeToggle').checked;
-      const wsEndpoint = diarizeEnabled2 ? '/ws/diarize' : '/ws/translate';
+      // Always keep Sarvam as the primary live transcription path.
+      // Speaker ID now runs as a sidecar inside /ws/translate instead of switching endpoints.
+      const wsEndpoint = '/ws/translate';
       
       let wsTargetHost = location.host;
       let wsTargetProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1515,36 +1534,59 @@ grok -> Groq"></textarea>
       
       const wsBaseUrl = `${wsTargetProto}//${wsTargetHost}${wsEndpoint}`;
       const wsUrl = wsBaseUrl + (authToken ? '?token=' + encodeURIComponent(authToken) : '');
-      console.log('Connecting WebSocket to:', wsUrl);
+      console.log('[WS] Connecting to:', wsUrl);
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
-        // Send settings as first message
-        ws.send(JSON.stringify({ mode, language: lang, target_lang: selectedTargetLang, custom_vocabulary: customVocabulary }));
+        console.log('[WS] Connected — sending settings');
+        ws.send(JSON.stringify({
+          mode,
+          language: lang,
+          target_lang: selectedTargetLang,
+          custom_vocabulary: customVocabulary,
+          diarize_enabled: diarizeEnabled2
+        }));
       };
 
-      ws.onmessage = (ev) => handleMessage(JSON.parse(ev.data));
+      ws.onmessage = (ev) => {
+        try {
+          handleMessage(JSON.parse(ev.data));
+        } catch (parseErr) {
+          console.error('[WS] Could not parse message:', ev.data, parseErr);
+        }
+      };
 
       ws.onerror = (e) => {
-        showToast('WebSocket error — is the server running?', 'error');
+        console.error('[WS] WebSocket error:', e);
+        showToast('⚠️ WebSocket error — is the server running?', 'error');
         setStatus('error', 'WS Error');
-        stopTranslation();
-      };
-
-      ws.onclose = () => {
-        ws = null;
-        // Re-enable start button if backend closed the connection
+        // Always re-enable start button on error
         document.getElementById('startBtn').disabled = false;
         document.getElementById('stopBtn').disabled = true;
+        cleanupAudio();
+        ws = null;
+      };
+
+      ws.onclose = (ev) => {
+        console.log('[WS] Connection closed — code:', ev.code, 'reason:', ev.reason);
+        ws = null;
+        // Always re-enable start button when connection closes
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        setStatus('idle', 'Idle');
+        cleanupAudio();
       };
 
       // Setup Web Audio → PCM pipeline
-      // NOTE: In share-audio (diarize) mode, audioContext was already created above
-      // to mix display + mic streams. Re-use it here instead of making a second context.
+      // NOTE: In share-audio mode, audioContext was already created to mix streams.
+      // Re-use it here instead of making a second context.
       if (!audioContext) {
         audioContext = new AudioContext({ sampleRate: 16000 });
       }
+
+      // If in share-audio/diarize mode, mediaStream is already a mixed destination stream.
+      // We create a new source from it for the analyser + worklet pipeline.
       const source = audioContext.createMediaStreamSource(mediaStream);
 
       analyser = audioContext.createAnalyser();
@@ -1578,7 +1620,13 @@ grok -> Groq"></textarea>
 
       processor = new AudioWorkletNode(audioContext, 'pcm-processor');
       analyser.connect(processor);
-      processor.connect(audioContext.destination);
+      // Keep the AudioWorklet graph alive without audible playback.
+      // If the processor has no downstream consumer, some browsers will stop pulling
+      // audio frames and no PCM reaches the backend WebSocket.
+      processorSink = audioContext.createGain();
+      processorSink.gain.value = 0;
+      processor.connect(processorSink);
+      processorSink.connect(audioContext.destination);
 
       processor.port.onmessage = (e) => {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -1592,41 +1640,52 @@ grok -> Groq"></textarea>
       durationInterval = setInterval(updateDuration, 1000);
     }
 
-    function stopTranslation() {
-      // Stop microphone immediately
-      if (processor) { processor.disconnect(); processor = null; }
-      if (audioContext) { audioContext.close(); audioContext = null; }
+    // ── Cleanup helper — tears down audio stack without touching WS ─────────────
+    function cleanupAudio() {
+      if (processor) { try { processor.disconnect(); } catch(e){} processor = null; }
+      if (processorSink) { try { processorSink.disconnect(); } catch(e){} processorSink = null; }
+      if (analyser) { try { analyser.disconnect(); } catch(e){} analyser = null; }
+      if (audioContext) { try { audioContext.close(); } catch(e){} audioContext = null; }
       if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
-      // Clean up share-audio streams (diarize mode)
       if (_displayStream) { _displayStream.getTracks().forEach(t => t.stop()); _displayStream = null; }
       if (_micStream) { _micStream.getTracks().forEach(t => t.stop()); _micStream = null; }
+      clearInterval(durationInterval);
+      startTime = null;
       stopWaveform();
+      const volFill = document.getElementById('volFill');
+      if (volFill) volFill.style.width = '0%';
+      document.getElementById('waveform').classList.remove('active');
+      partialEl = null;
+    }
+
+    function stopTranslation() {
+      // Tear down audio pipeline immediately
+      cleanupAudio();
 
       // Send stop signal to backend BEFORE closing — backend will process then close
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ action: "stop" }));
-        // Don't close ws here — backend closes it after sending analysis results
+        try { ws.send(JSON.stringify({ action: 'stop' })); } catch(e) {}
+        // Don't force-close ws here — backend closes it after sending analysis results
+        // The ws.onclose handler will re-enable the start button
+        setStatus('processing', 'Processing…');
+        document.getElementById('startBtn').disabled = true;   // keep disabled until analysis done
+        document.getElementById('stopBtn').disabled = true;
       } else {
+        // WS already closed — immediately re-enable start button
         ws = null;
+        setStatus('idle', 'Idle');
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
       }
-
-      clearInterval(durationInterval);
-      setStatus('processing', 'Processing…');
-      document.getElementById('startBtn').disabled = true;   // keep disabled until analysis done
-      document.getElementById('stopBtn').disabled = true;
-      document.getElementById('waveform').classList.remove('active');
-      document.getElementById('volFill').style.width = '0%';
-      partialEl = null;
 
       // Show saved confirmation if DB was connected
       const dbBadge = document.getElementById('dbBadge');
-      if (dbBadge.classList.contains('ok') && segmentCount > 0) {
+      if (dbBadge && dbBadge.classList.contains('ok') && segmentCount > 0) {
         showToast('✓ Session saved to MongoDB', 'ok');
-        // Update session counter
         const statDB = document.getElementById('statDB');
         const statCount = document.getElementById('statDBCount');
-        statDB.style.display = 'flex';
-        statCount.textContent = parseInt(statCount.textContent || '0') + 1;
+        if (statDB) statDB.style.display = 'flex';
+        if (statCount) statCount.textContent = parseInt(statCount.textContent || '0') + 1;
       }
     }
 
@@ -1699,6 +1758,14 @@ grok -> Groq"></textarea>
 
         case 'keywords':
           applyKeywordsToEntry(msg.sentence, msg.keywords || []);
+          break;
+
+        case 'speaker_update':
+          if (msg.speakers && msg.speakers.length) showSpeakers(msg.speakers);
+          break;
+
+        case 'speaker_status':
+          if (msg.message) showToast('🎤 ' + msg.message, msg.active === false ? 'error' : 'ok');
           break;
 
         case 'partial':

@@ -171,13 +171,35 @@ async def lifespan(app: FastAPI):
             await users_col.create_index("email", unique=True)
             await users_col.create_index("api_key", unique=True, sparse=True)
             
-            # Text index for search
-            await db_collection.create_index([
-                ("transcript", "text"),
-                ("corrected_transcript", "text"),
-                ("summary", "text"),
-                ("notes", "text")
-            ], default_language="english")
+            # Text index for search.
+            # IMPORTANT: language_override must point to a non-existent field so MongoDB
+            # does NOT treat the document's 'language' field (e.g. 'hi-IN') as a text-index
+            # language selector — 'hi-IN' is not a valid MongoDB text-search language and
+            # would cause error code 17262. Using a dummy field makes all docs use 'english'.
+            try:
+                await db_collection.create_index([
+                    ("transcript", "text"),
+                    ("corrected_transcript", "text"),
+                    ("summary", "text"),
+                    ("notes", "text")
+                ], default_language="english", language_override="search_lang_override")
+            except Exception as idx_err:
+                # Index may already exist with old options — drop and recreate
+                print(f"  ⚠️  Text index create failed ({idx_err}), attempting drop+recreate…")
+                try:
+                    await db_collection.drop_index("transcript_text_corrected_transcript_text_summary_text_notes_text")
+                except Exception:
+                    pass
+                try:
+                    await db_collection.create_index([
+                        ("transcript", "text"),
+                        ("corrected_transcript", "text"),
+                        ("summary", "text"),
+                        ("notes", "text")
+                    ], default_language="english", language_override="search_lang_override")
+                    print("  ✅ Text index recreated successfully")
+                except Exception as e2:
+                    print(f"  ⚠️  Text index could not be created: {e2} — search will use regex fallback")
             
             print(f"✅ MongoDB connected → {MONGO_DB}.{MONGO_COL} + users")
         except Exception as e:
@@ -912,6 +934,36 @@ def build_paragraphs(sentences: list, size: int = 5) -> str:
         paras.append(para)
     return "\n\n".join(paras)
 
+
+def normalize_deepgram_language(language_code: str) -> str | None:
+    """
+    Deepgram language support differs from Sarvam's language_code values.
+    Use a known-good explicit language when possible and otherwise let
+    Deepgram choose its default behavior.
+    """
+    code = (language_code or "").strip().lower()
+    if code.startswith("en"):
+        return "en-IN"
+    return None
+
+
+def merge_speaker_turns(existing_turns: list[dict], speaker: str, text: str, limit: int = 12) -> list[dict]:
+    cleaned_text = re.sub(r"\s+", " ", (text or "").strip())
+    cleaned_speaker = (speaker or "unknown").strip() or "unknown"
+    if not cleaned_text:
+        return list(existing_turns)
+
+    next_turns = list(existing_turns)
+    if next_turns and next_turns[-1].get("speaker") == cleaned_speaker:
+        previous = str(next_turns[-1].get("text") or "").strip()
+        if previous and cleaned_text.lower() in previous.lower():
+            return next_turns
+        next_turns[-1]["text"] = f"{previous} {cleaned_text}".strip()
+    else:
+        next_turns.append({"speaker": cleaned_speaker, "text": cleaned_text})
+
+    return next_turns[-limit:]
+
 def pcm_to_wav(pcm_data: bytes, sample_rate: int, channels: int) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -1547,6 +1599,11 @@ async def translate_ws(client_ws: WebSocket):
                         status = get_user_pro_status(db_user)
                         is_pro = status["is_pro"]
 
+    # Allow when auth is disabled (self-hosted / local dev)
+    if not AUTH_AVAILABLE:
+        is_pro = True
+        ws_user_id = "local"
+
     start_time_limit = datetime.now(timezone.utc)
 
     try:
@@ -1560,7 +1617,15 @@ async def translate_ws(client_ws: WebSocket):
     mode          = settings.get("mode", "transcribe")
     language_code = settings.get("language", "hi-IN")
     target_lang   = settings.get("target_lang", "same")
+    diarize_requested = bool(settings.get("diarize_enabled"))
     custom_vocabulary = normalize_custom_vocabulary(settings.get("custom_vocabulary", [])) if AI_FEATURES_AVAILABLE else []
+    diarize_active = bool(diarize_requested and DEEPGRAM_AVAILABLE and (is_pro or ws_user_id == "local"))
+    deepgram_language = normalize_deepgram_language(language_code)
+
+    print(
+        f"[translate_ws] mode={mode} lang={language_code} target={target_lang} "
+        f"user={ws_user_id} pro={is_pro} diarize={diarize_active}"
+    )
 
     if not SARVAM_AVAILABLE:
         await client_ws.send_json({"type": "error", "message": "sarvamai not installed."})
@@ -1572,6 +1637,17 @@ async def translate_ws(client_ws: WebSocket):
         await client_ws.close()
         return
 
+    # ── Send early 'connecting' status so Stop button is enabled while Sarvam connects ──
+    try:
+        await client_ws.send_json({
+            "type": "ready",
+            "message": "Connecting to Sarvam AI…" + (" Speaker ID enabled." if diarize_active else ""),
+            "session_id": None,
+            "db": "connected" if db_collection is not None else "disconnected",
+        })
+    except Exception:
+        pass
+
     session_id     = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     started_at     = datetime.now(timezone.utc)
     all_sentences  = []
@@ -1580,10 +1656,19 @@ async def translate_ws(client_ws: WebSocket):
     last_frag_t    = [0.0]
     pcm_buffer     = bytearray()
     session_active = True
+    live_speaker_turns = []
+    deepgram_audio_queue = asyncio.Queue() if diarize_active else None
+    deepgram_audio_closed = False
 
     print(f"[Session] {session_id} started | mode={mode} lang={language_code}")
 
     sarvam_client = AsyncSarvamAI(api_subscription_key=SARVAM_API_KEY)
+
+    async def close_deepgram_audio_stream():
+        nonlocal deepgram_audio_closed
+        if deepgram_audio_queue is not None and not deepgram_audio_closed:
+            deepgram_audio_closed = True
+            await deepgram_audio_queue.put(None)
 
     # ── Flush idle fragments ──────────────────────────────────────────────────
     async def flush_idle():
@@ -1622,7 +1707,8 @@ async def translate_ws(client_ws: WebSocket):
                 vad_signals=True,
             ) as sarvam_ws:
                 await broadcast_event(session_id, client_ws, {
-                    "type": "ready", "message": "Sarvam AI connected",
+                    "type": "ready",
+                    "message": "Sarvam AI connected" + (" — Speaker ID active" if diarize_active else ""),
                     "session_id": session_id,
                     "db": "connected" if db_collection is not None else "disconnected",
                 })
@@ -1674,6 +1760,65 @@ async def translate_ws(client_ws: WebSocket):
             except Exception:
                 pass
 
+    async def deepgram_audio_generator():
+        if deepgram_audio_queue is None:
+            return
+        while True:
+            chunk = await deepgram_audio_queue.get()
+            if chunk is None:
+                break
+            yield chunk
+
+    async def diarization_session():
+        nonlocal live_speaker_turns
+        if deepgram_audio_queue is None:
+            return
+
+        try:
+            async for result in stream_to_deepgram(
+                deepgram_audio_generator(),
+                language=deepgram_language,
+            ):
+                if "error" in result:
+                    print(f"Deepgram sidecar error: {result['error']}")
+                    await broadcast_event(session_id, client_ws, {
+                        "type": "speaker_status",
+                        "active": False,
+                        "message": result["error"],
+                    })
+                    return
+
+                if not result.get("is_final"):
+                    continue
+
+                speaker_label = str(result.get("speaker") or "unknown").strip() or "unknown"
+                display_speaker = (
+                    speaker_label.replace("speaker_", "Speaker ")
+                    if speaker_label.startswith("speaker_")
+                    else speaker_label.title()
+                )
+                live_speaker_turns = merge_speaker_turns(
+                    live_speaker_turns,
+                    display_speaker,
+                    str(result.get("text") or ""),
+                )
+                await broadcast_event(session_id, client_ws, {
+                    "type": "speaker_update",
+                    "speakers": live_speaker_turns,
+                })
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"Deepgram diarization session error: {e}")
+            try:
+                await broadcast_event(session_id, client_ws, {
+                    "type": "speaker_status",
+                    "active": False,
+                    "message": str(e),
+                })
+            except Exception:
+                pass
+
     # ── Audio + control receiver ──────────────────────────────────────────────
     async def audio_receiver():
         nonlocal pcm_buffer, session_active
@@ -1692,17 +1837,22 @@ async def translate_ws(client_ws: WebSocket):
                 if msg["type"] == "websocket.receive":
                     if "bytes" in msg and msg["bytes"]:
                         pcm_buffer.extend(msg["bytes"])
+                        if deepgram_audio_queue is not None:
+                            await deepgram_audio_queue.put(bytes(msg["bytes"]))
                     elif "text" in msg and msg["text"]:
                         data = json.loads(msg["text"])
                         if data.get("action") == "stop":
                             print(f"  [Control] Stop received from browser")
                             session_active = False
+                            await close_deepgram_audio_stream()
                             return   # exit cleanly — triggers finally in gather
         except WebSocketDisconnect:
             session_active = False
+            await close_deepgram_audio_stream()
         except Exception as e:
             print(f"  [audio_receiver] {e}")
             session_active = False
+            await close_deepgram_audio_stream()
 
     # ── Redis Subscriber ──────────────────────────────────────────────────────
     async def redis_subscriber():
@@ -1725,6 +1875,11 @@ async def translate_ws(client_ws: WebSocket):
                 await pubsub.close()
 
     subscriber_task = asyncio.create_task(redis_subscriber(), name="redis_sub")
+    diarization_task = (
+        asyncio.create_task(diarization_session(), name="deepgram_diarize")
+        if diarize_active
+        else None
+    )
 
     # Run all tasks — cancel all when any one finishes (stop signal or disconnect)
     tasks = [
@@ -1743,6 +1898,20 @@ async def translate_ws(client_ws: WebSocket):
                 pass
     except Exception as e:
         print(f"[Session] task error: {e}")
+    finally:
+        await close_deepgram_audio_stream()
+
+    if diarization_task is not None:
+        try:
+            await asyncio.wait_for(diarization_task, timeout=3)
+        except asyncio.TimeoutError:
+            diarization_task.cancel()
+            try:
+                await diarization_task
+            except asyncio.CancelledError:
+                pass
+        except Exception as e:
+            print(f"Deepgram sidecar shutdown error: {e}")
 
     # ── Flush remaining fragment ──────────────────────────────────────────────
     if frag_buf:
@@ -1779,6 +1948,7 @@ async def translate_ws(client_ws: WebSocket):
             # Payload restriction for non-pro users
             display_summary = result.get("summary", "")
             display_notes = result.get("notes", "")
+            session_speakers = result.get("speakers") or live_speaker_turns
             
             if not is_pro and ws_user_id != "local":
                 display_summary = "Upgrade to PRO to unlock AI summaries of your meetings."
@@ -1791,7 +1961,7 @@ async def translate_ws(client_ws: WebSocket):
                 "filtered_transcript": result.get("filtered_transcript", ""),
                 "corrected_transcript":result.get("corrected_transcript", ""),
                 "title":               result.get("title", ""),
-                "speakers":            result.get("speakers", []),
+                "speakers":            session_speakers,
             })
             print(f"  [LLM] Sent (Pro:{is_pro}) → title:'{result.get('title','')}'")
         except Exception as e:
@@ -1809,10 +1979,12 @@ async def translate_ws(client_ws: WebSocket):
             final_title,
             result.get("notes", ""),
             ws_user_id,
-            result.get("speakers", []),
+            result.get("speakers") or live_speaker_turns,
             extra_fields={
                 "target_lang": target_lang,
+                "diarize_enabled": diarize_active,
                 "custom_vocabulary": custom_vocabulary,
+                "deepgram_speakers": live_speaker_turns,
                 "sentiment_timeline": sentiment_timeline,
                 "sentiment_summary": summarize_sentiment_timeline(sentiment_timeline) if AI_FEATURES_AVAILABLE else {},
             },
