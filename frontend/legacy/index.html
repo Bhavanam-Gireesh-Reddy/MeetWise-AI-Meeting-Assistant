@@ -1476,7 +1476,10 @@ grok -> Groq"></textarea>
         };
         const diarizeEnabled = document.getElementById('diarizeToggle').checked;
         const shareAudioEnabled = document.getElementById('shareAudioToggle') && document.getElementById('shareAudioToggle').checked;
-        captureSystemAudio = shareAudioEnabled || diarizeEnabled;
+        // Speaker ID should not force display/tab capture on its own.
+        // Keep diarization compatible with normal mic-only transcription unless
+        // the user explicitly enables Share Audio for meetings/tab audio.
+        captureSystemAudio = !!shareAudioEnabled;
 
         if (captureSystemAudio) {
           // ── Share Audio / Diarize mode: capture display (system) audio + mic, mix them ──
@@ -1530,6 +1533,18 @@ grok -> Groq"></textarea>
       if (window.NEXT_PUBLIC_API_URL) {
         wsTargetHost = window.NEXT_PUBLIC_API_URL.replace(/^https?:\/\//, '').replace(/\/$/, '');
         wsTargetProto = window.NEXT_PUBLIC_API_URL.startsWith('http://') ? 'ws:' : 'wss:';
+      }
+
+      if (
+        location.hostname !== 'localhost' &&
+        location.hostname !== '127.0.0.1' &&
+        /^localhost(:\d+)?$/i.test(wsTargetHost)
+      ) {
+        showToast('⚠️ Live API is still pointing to localhost. Set NEXT_PUBLIC_API_URL on the frontend deployment.', 'error');
+        setStatus('error', 'Config error');
+        document.getElementById('startBtn').disabled = false;
+        cleanupAudio();
+        return;
       }
       
       const wsBaseUrl = `${wsTargetProto}//${wsTargetHost}${wsEndpoint}`;
