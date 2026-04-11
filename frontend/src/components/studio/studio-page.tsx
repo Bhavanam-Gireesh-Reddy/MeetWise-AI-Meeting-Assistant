@@ -19,7 +19,6 @@ import {
   Video,
   CheckSquare,
   Upload,
-  AlertCircle,
 } from "lucide-react";
 import {
   startTransition,
@@ -89,6 +88,19 @@ type SessionDetail = SessionItem & {
   mind_map?: { title?: string; mermaid?: string; outline?: MindMapNode[] } | null;
   rich_notes?: string | null;
   chat_history?: ChatMessage[];
+  action_items?: Array<{
+    action: string;
+    owner?: string;
+    due_date?: string;
+    priority?: "high" | "medium" | "low";
+    status?: string;
+  }>;
+  uploaded_notes?: Array<{
+    timestamp: string;
+    text: string;
+    file_type: string;
+    confidence: string;
+  }>;
   [key: string]: unknown;
 };
 
@@ -668,7 +680,15 @@ export function StudioPageClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      const payload = await readJson<{ action_items: any[] }>(response);
+      const payload = await readJson<{
+        action_items: Array<{
+          action: string;
+          owner?: string;
+          due_date?: string;
+          priority?: "high" | "medium" | "low";
+          status?: string;
+        }>;
+      }>(response);
       updateDetail({ action_items: payload.action_items ?? [] });
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to extract action items.");
@@ -1328,7 +1348,7 @@ export function StudioPageClient() {
                 >
                   {detail.action_items && detail.action_items.length > 0 ? (
                     <div className="space-y-3">
-                      {detail.action_items.map((item: any, index: number) => (
+                      {detail.action_items.map((item: { action: string; owner?: string; due_date?: string; priority?: string; status?: string }, index: number) => (
                         <div
                           key={index}
                           className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
@@ -1380,7 +1400,10 @@ export function StudioPageClient() {
                         const input = document.createElement("input");
                         input.type = "file";
                         input.accept = "image/*";
-                        input.onchange = (e: any) => void handleOCRUpload(e.target.files?.[0]);
+                        input.onchange = (e: Event) => {
+                          const target = e.target as HTMLInputElement;
+                          void handleOCRUpload(target.files?.[0]);
+                        };
                         input.click();
                       }}
                     >
@@ -1395,7 +1418,7 @@ export function StudioPageClient() {
 
                     {detail.uploaded_notes && detail.uploaded_notes.length > 0 && (
                       <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                        {detail.uploaded_notes.map((note: any, index: number) => (
+                        {detail.uploaded_notes.map((note: { timestamp: string; text: string; file_type: string; confidence: string }, index: number) => (
                           <div
                             key={index}
                             className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
