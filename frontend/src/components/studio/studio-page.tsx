@@ -904,30 +904,30 @@ export function StudioPageClient() {
                         Speaker detection is not available for this session yet.
                       </div>
                     )}
-                    <div className="mt-auto grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                    <div className="mt-auto grid auto-rows-fr gap-3 sm:grid-cols-3">
+                      <div className="flex min-h-[120px] flex-col justify-between rounded-3xl border border-slate-200 bg-slate-50 p-5">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                           Overall
                         </p>
-                        <p className="mt-3 font-semibold text-slate-950">
+                        <p className="text-lg font-semibold text-slate-950">
                           {(detail.sentiment_summary?.overall ?? "neutral").toUpperCase()}
                         </p>
                       </div>
-                      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                      <div className="flex min-h-[120px] flex-col justify-between rounded-3xl border border-slate-200 bg-slate-50 p-5">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                           Positive / Neutral / Negative
                         </p>
-                        <p className="mt-3 font-semibold text-slate-950">
+                        <p className="text-lg font-semibold text-slate-950">
                           {(detail.sentiment_summary?.counts?.positive ?? 0)} /{" "}
                           {(detail.sentiment_summary?.counts?.neutral ?? 0)} /{" "}
                           {(detail.sentiment_summary?.counts?.negative ?? 0)}
                         </p>
                       </div>
-                      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                      <div className="flex min-h-[120px] flex-col justify-between rounded-3xl border border-slate-200 bg-slate-50 p-5">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                           Timeline
                         </p>
-                        <p className="mt-3 font-semibold text-slate-950">
+                        <p className="text-lg font-semibold text-slate-950">
                           {(detail.sentiment_timeline?.length ?? 0).toLocaleString()} points
                         </p>
                       </div>
