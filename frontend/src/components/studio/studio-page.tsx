@@ -169,13 +169,13 @@ function StudioCard({
 }) {
   return (
     <section
-      className={`overflow-hidden rounded-[24px] md:rounded-[30px] border border-white/70 bg-white/90 p-4 md:p-6 lg:p-7 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur ${className ?? ""}`}
+      className={`overflow-hidden rounded-lg sm:rounded-2xl md:rounded-[24px] lg:rounded-[30px] border border-white/70 bg-white/90 p-3 sm:p-4 md:p-5 lg:p-6 shadow-[0_8px_16px_rgba(15,23,42,0.06)] sm:shadow-[0_12px_24px_rgba(15,23,42,0.06)] md:shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur ${className ?? ""}`}
     >
-      <div className="flex flex-col gap-3 md:gap-4">
+      <div className="flex flex-col gap-2 sm:gap-3 md:gap-4">
         <div className="min-w-0">
-          <h3 className="text-base md:text-lg font-semibold text-slate-950">{title}</h3>
+          <h3 className="text-sm sm:text-base md:text-lg font-semibold text-slate-950">{title}</h3>
           {subtitle ? (
-            <p className="mt-1 md:mt-2 text-xs md:text-sm leading-5 md:leading-6 text-slate-500">{subtitle}</p>
+            <p className="mt-0.5 sm:mt-1 md:mt-2 text-xs sm:text-xs md:text-sm leading-4 sm:leading-5 md:leading-6 text-slate-500">{subtitle}</p>
           ) : null}
         </div>
         {actions ? <div className="self-start">{actions}</div> : null}
@@ -193,11 +193,11 @@ function MetricCard({
   value: string;
 }) {
   return (
-    <div className="flex h-full min-h-[100px] md:min-h-[132px] flex-col justify-between rounded-[20px] md:rounded-[30px] border border-white/70 bg-white/90 p-3 md:p-5 shadow-[0_24px_60px_rgba(15,23,42,0.08)]">
-      <p className="text-[10px] md:text-[11px] font-semibold uppercase tracking-[0.2em] md:tracking-[0.24em] text-slate-500">
+    <div className="flex h-full min-h-[90px] sm:min-h-[100px] md:min-h-[120px] lg:min-h-[132px] flex-col justify-between rounded-lg sm:rounded-2xl md:rounded-[24px] lg:rounded-[30px] border border-white/70 bg-white/90 p-3 sm:p-3.5 md:p-4 lg:p-5 shadow-[0_8px_16px_rgba(15,23,42,0.06)] sm:shadow-[0_12px_24px_rgba(15,23,42,0.06)] md:shadow-[0_24px_60px_rgba(15,23,42,0.08)]">
+      <p className="text-[8px] xsm:text-[9px] sm:text-[10px] md:text-[11px] font-semibold uppercase tracking-[0.15em] sm:tracking-[0.18em] md:tracking-[0.24em] text-slate-500">
         {label}
       </p>
-      <p className="mt-3 md:mt-6 text-lg md:text-2xl font-semibold tracking-[-0.02em] md:tracking-[-0.03em] text-slate-950">
+      <p className="mt-2 sm:mt-3 md:mt-4 lg:mt-6 text-base sm:text-lg md:text-xl lg:text-2xl font-semibold tracking-[-0.015em] sm:tracking-[-0.02em] md:tracking-[-0.025em] lg:tracking-[-0.03em] text-slate-950">
         {value}
       </p>
     </div>
@@ -219,16 +219,16 @@ function ActionButton({
 }) {
   return (
     <button
-      className={`inline-flex h-10 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition ${
+      className={`inline-flex h-9 sm:h-10 md:h-10 items-center justify-center gap-2 rounded-xl sm:rounded-2xl px-3 sm:px-4 text-xs sm:text-sm font-semibold transition active:scale-95 ${
         primary
-          ? "bg-slate-950 text-white hover:bg-slate-800"
-          : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+          ? "bg-slate-950 text-white hover:bg-slate-800 disabled:hover:bg-slate-950"
+          : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:hover:bg-white"
       } disabled:cursor-not-allowed disabled:opacity-60`}
       disabled={busy || disabled}
       onClick={onClick}
       type="button"
     >
-      {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+      {busy ? <LoaderCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" /> : null}
       {children}
     </button>
   );
@@ -815,8 +815,8 @@ export function StudioPageClient() {
         </div>
       ) : null}
 
-      <div className="grid items-start gap-6 md:gap-8 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="space-y-4 md:space-y-5 lg:sticky lg:top-6">
+      <div className="grid items-start gap-3 sm:gap-4 md:gap-6 lg:gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="space-y-3 sm:space-y-4 md:space-y-5 lg:sticky lg:top-6">
           <StudioCard
             subtitle={youtubeStatus}
             title="YouTube import"
@@ -831,9 +831,9 @@ export function StudioPageClient() {
               </ActionButton>
             }
           >
-            <div className="space-y-3">
+            <div className="space-y-2 sm:space-y-3">
               <select
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+                className="h-10 sm:h-11 w-full rounded-lg sm:rounded-2xl border border-slate-200 bg-slate-50 px-3 sm:px-4 text-xs sm:text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
                 onChange={(event) => setYoutubeBrowser(event.target.value)}
                 value={youtubeBrowser}
               >
