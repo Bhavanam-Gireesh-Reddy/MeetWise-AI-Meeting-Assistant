@@ -56,7 +56,7 @@ function StatCard({
   detail,
   accentColor = "#00d4ff",
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   label: string;
   value: string;
   detail: string;
