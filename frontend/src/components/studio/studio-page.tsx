@@ -133,9 +133,10 @@ const INPUT_STYLE: React.CSSProperties = {
 };
 
 const SELECT_STYLE: React.CSSProperties = {
-  background: "rgba(255,255,255,0.05)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  color: "rgba(255,255,255,0.75)",
+  background: "rgba(20,20,30,0.95)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  color: "rgba(255,255,255,0.85)",
+  colorScheme: "dark",
 };
 
 const translationOptions = [
