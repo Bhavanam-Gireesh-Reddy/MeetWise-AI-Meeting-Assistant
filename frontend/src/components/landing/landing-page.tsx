@@ -457,7 +457,7 @@ export function LandingPage({ isLoggedIn }: LandingPageProps) {
           </h2>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {CARDS.map(({ icon: Icon, label, title, description, gradient, iconColor, iconBg, border }) => (
+            {CARDS.map(({ icon: Icon, label, title, description, gradient, iconColor, iconBg }) => (
               <div
                 key={title}
                 className="group relative overflow-hidden rounded-2xl p-6 transition-transform duration-300 hover:-translate-y-1"
