@@ -393,8 +393,8 @@ export function LivePage() {
     }
     mediaStreamRef.current = stream;
 
-    const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProto}//${window.location.host}/ws/translate`;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || window.location.origin;
+    const wsUrl = apiBase.replace(/^http/, "ws") + "/ws/translate";
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
@@ -486,8 +486,8 @@ registerProcessor('pcm-processor', PCMProcessor);
       const resampled = await offline.startRendering();
       const pcmData = resampled.getChannelData(0);
 
-      const wsProto = window.location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${wsProto}://${window.location.host}/ws/translate`);
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || window.location.origin;
+      const ws = new WebSocket(apiBase.replace(/^http/, "ws") + "/ws/translate");
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
