@@ -824,7 +824,7 @@ async def resolve_title(raw_title: str, user_id: str = "") -> str:
 async def save_to_mongo(session_id, started_at, language, mode,
                         sentences, filtered_transcript="", summary="", corrected_transcript="", title="", notes="", user_id="", speakers=None, extra_fields=None):
     if db_collection is None:
-        print("  [DB] Skipped — MongoDB not connected")
+        print(f"  [DB] ❌ SKIPPED saving session {session_id} — MongoDB not connected! {len(sentences)} sentences lost.")
         return
     if not sentences:
         print("  [DB] Skipped — no sentences to save")
@@ -1119,10 +1119,24 @@ async def v1_list_sessions(
     if db_collection is None:
         return JSONResponse({"error": "DB not connected"}, status_code=503)
     skip   = (page - 1) * limit
-    query  = {"user_id": user["sub"]} if AUTH_AVAILABLE else {}
+    # Include sessions owned by this user AND orphaned sessions (empty user_id)
+    if AUTH_AVAILABLE:
+        query = {"$or": [{"user_id": user["sub"]}, {"user_id": ""}]}
+    else:
+        query = {}
     cursor = db_collection.find(query, {"_id": 0, "sentences": 0}).sort("started_at", -1).skip(skip).limit(limit)
     total  = await db_collection.count_documents(query)
     items  = await cursor.to_list(length=limit)
+    # Claim orphaned sessions for this user so they show up correctly next time
+    if AUTH_AVAILABLE and any(s.get("user_id") == "" for s in items):
+        orphan_ids = [s["session_id"] for s in items if s.get("user_id") == ""]
+        await db_collection.update_many(
+            {"session_id": {"$in": orphan_ids}, "user_id": ""},
+            {"$set": {"user_id": user["sub"]}},
+        )
+        for s in items:
+            if s.get("user_id") == "":
+                s["user_id"] = user["sub"]
     return JSONResponse({"page": page, "limit": limit, "total": total, "sessions": items})
 
 
@@ -1297,6 +1311,10 @@ async def translate_ws(client_ws: WebSocket):
             payload = decode_token(token)
             if payload:
                 ws_user_id = payload.get("sub", "")
+            else:
+                print(f"  [Auth] ⚠️ WebSocket token decode failed (expired or invalid)")
+        else:
+            print(f"  [Auth] ⚠️ No auth token provided to WebSocket — session will have no user_id")
 
     try:
         settings_raw = await asyncio.wait_for(client_ws.receive_text(), timeout=10)
@@ -1484,40 +1502,51 @@ async def translate_ws(client_ws: WebSocket):
 
     # ── WebSocket is STILL OPEN here — process + send results ────────────────
     if all_sentences:
-        try:
-            # 1. Notify browser: processing started
-            await broadcast_event(session_id, client_ws, {
-                "type": "processing",
-                "message": f"Analysing {len(all_sentences)} sentences with AI..."
-            })
-        except Exception:
-            pass
+        if AUTH_AVAILABLE and not ws_user_id:
+            print(f"  [Auth] ⚠️ ws_user_id is empty — session will be saved without user ownership")
 
         result = {"summary": "", "filtered_transcript": ""}
-        if LLM_AVAILABLE and os.getenv("GROQ_API_KEY", "") not in ("", "YOUR_GROQ_API_KEY_HERE"):
-            print(f"  [LLM] Calling Groq...")
-            result = await process_session(all_sentences)
-        else:
-            print(f"  [LLM] Skipped — LLM_AVAILABLE={LLM_AVAILABLE}, key set={GROQ_API_KEY != 'YOUR_GROQ_API_KEY_HERE'}")
-
-        # 2. Send analysis results to browser while connection is open
         try:
-            await broadcast_event(session_id, client_ws, {
-                "type":                "session_analysis",
-                "summary":             result.get("summary", ""),
-                "notes":               result.get("notes", ""),
-                "filtered_transcript": result.get("filtered_transcript", ""),
-                "corrected_transcript":result.get("corrected_transcript", ""),
-                "title":               result.get("title", ""),
-                "speakers":            result.get("speakers", []),
-            })
-            print(f"  [LLM] Sent → title:'{result.get('title','')}' summary:{len(result.get('summary',''))} chars notes:{len(result.get('notes',''))} chars")
-        except Exception as e:
-            print(f"  [LLM] Send error: {e}")
+            try:
+                # 1. Notify browser: processing started
+                await broadcast_event(session_id, client_ws, {
+                    "type": "processing",
+                    "message": f"Analysing {len(all_sentences)} sentences with AI..."
+                })
+            except Exception:
+                pass
 
-        # 3. Save to MongoDB
-        raw_title   = result.get("title", "")
-        final_title = await resolve_title(raw_title, ws_user_id)
+            if LLM_AVAILABLE and os.getenv("GROQ_API_KEY", "") not in ("", "YOUR_GROQ_API_KEY_HERE"):
+                print(f"  [LLM] Calling Groq...")
+                result = await process_session(all_sentences)
+            else:
+                print(f"  [LLM] Skipped — LLM_AVAILABLE={LLM_AVAILABLE}, key set={GROQ_API_KEY != 'YOUR_GROQ_API_KEY_HERE'}")
+
+            # 2. Send analysis results to browser while connection is open
+            try:
+                await broadcast_event(session_id, client_ws, {
+                    "type":                "session_analysis",
+                    "summary":             result.get("summary", ""),
+                    "notes":               result.get("notes", ""),
+                    "filtered_transcript": result.get("filtered_transcript", ""),
+                    "corrected_transcript":result.get("corrected_transcript", ""),
+                    "title":               result.get("title", ""),
+                    "speakers":            result.get("speakers", []),
+                })
+                print(f"  [LLM] Sent → title:'{result.get('title','')}' summary:{len(result.get('summary',''))} chars notes:{len(result.get('notes',''))} chars")
+            except Exception as e:
+                print(f"  [LLM] Send error: {e}")
+        except Exception as e:
+            print(f"  [LLM] ❌ Processing error (will still save session): {e}")
+
+        # 3. Save to MongoDB — always runs even if LLM/broadcast failed
+        try:
+            raw_title   = result.get("title", "")
+            final_title = await resolve_title(raw_title, ws_user_id)
+        except Exception as e:
+            print(f"  [DB] ⚠️ resolve_title error: {e}")
+            final_title = result.get("title", "")
+
         await save_to_mongo(
             session_id, started_at, language_code, mode,
             list(all_sentences),
