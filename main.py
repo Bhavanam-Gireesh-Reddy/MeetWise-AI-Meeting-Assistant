@@ -1722,30 +1722,33 @@ async def session_action_items(session_id: str, body: dict, request: Request, x_
     summary="Upload and process handwritten notes with OCR",
     tags=["AI Features"])
 async def session_upload_notes(session_id: str, request: Request, x_api_key: str = Header(default="")):
-    if not AI_FEATURES_AVAILABLE:
-        return JSONResponse({"error": "AI features are not available"}, status_code=503)
+    # OCR works even without AI_FEATURES if Groq Vision is available
     result, error = await get_session_for_user(session_id, request, x_api_key)
     if error:
         return error
     doc, user = result
-    
+
     try:
         body = await request.json()
     except Exception as e:
-        return JSONResponse({"success": False, "error": f"Invalid JSON: {str(e)}"}, status_code=400)
-    
+        return JSONResponse({"success": False, "error": f"Invalid request body: {e}"}, status_code=400)
+
     image_base64 = body.get("image_data", "")
     file_type = body.get("file_type", "image/png")
-    
+
     if not image_base64:
         return JSONResponse({"success": False, "error": "No image data provided"}, status_code=400)
-    
-    ocr_result = await process_ocr_from_image(image_base64, file_type)
-    
+
+    try:
+        ocr_result = await process_ocr_from_image(image_base64, file_type)
+    except Exception as e:
+        print(f"  [OCR] ❌ Unhandled error: {e}")
+        return JSONResponse({"success": False, "error": f"OCR processing error: {e}"}, status_code=500)
+
     if not ocr_result.get("success"):
         response_data = {
             "success": False,
-            "error": ocr_result.get("error", "OCR processing failed")
+            "error": ocr_result.get("error", "OCR processing failed"),
         }
         if "setup_guide" in ocr_result:
             response_data["setup_guide"] = ocr_result["setup_guide"]
@@ -1780,8 +1783,6 @@ async def session_upload_notes(session_id: str, request: Request, x_api_key: str
     summary="Extract text from an image using OCR (standalone, no session needed)",
     tags=["AI Features"])
 async def ocr_extract(request: Request, x_api_key: str = Header(default="")):
-    if not AI_FEATURES_AVAILABLE:
-        return JSONResponse({"error": "AI features are not available"}, status_code=503)
     user = await require_api_auth(request, x_api_key)
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
@@ -1789,7 +1790,7 @@ async def ocr_extract(request: Request, x_api_key: str = Header(default="")):
     try:
         body = await request.json()
     except Exception as e:
-        return JSONResponse({"success": False, "error": f"Invalid JSON: {e}"}, status_code=400)
+        return JSONResponse({"success": False, "error": f"Invalid request body: {e}"}, status_code=400)
 
     image_base64 = body.get("image_data", "")
     file_type = body.get("file_type", "image/png")
@@ -1797,7 +1798,11 @@ async def ocr_extract(request: Request, x_api_key: str = Header(default="")):
     if not image_base64:
         return JSONResponse({"success": False, "error": "No image data provided"}, status_code=400)
 
-    ocr_result = await process_ocr_from_image(image_base64, file_type)
+    try:
+        ocr_result = await process_ocr_from_image(image_base64, file_type)
+    except Exception as e:
+        print(f"  [OCR] ❌ Unhandled error: {e}")
+        return JSONResponse({"success": False, "error": f"OCR processing error: {e}"}, status_code=500)
 
     if not ocr_result.get("success"):
         response_data = {
