@@ -628,7 +628,7 @@ registerProcessor('pcm-processor', PCMProcessor);
     error: "#f87171",
   };
 
-  const uniqueSpeakers = [...new Set(speakers.map((s) => s.speaker))];
+  const uniqueSpeakers = Array.from(new Set(speakers.map((s) => s.speaker)));
   const speakerColorMap: Record<string, typeof SPEAKER_COLORS[0]> = {};
   uniqueSpeakers.forEach((sp, i) => { speakerColorMap[sp] = SPEAKER_COLORS[i % SPEAKER_COLORS.length]; });
 
