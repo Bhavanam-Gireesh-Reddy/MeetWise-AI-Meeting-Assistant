@@ -100,8 +100,28 @@ FRONTEND_URL   = os.getenv("FRONTEND_URL",   "").rstrip("/")
 
 SAMPLE_RATE   = 16000
 CHANNELS      = 1
-CHUNK_BYTES   = int(SAMPLE_RATE * 0.5 * 2)
-SENTENCE_ENDS = re.compile(r'[.!?।]\s*$')
+CHUNK_BYTES   = int(SAMPLE_RATE * 0.25 * 2)   # 250ms chunks (was 500ms) — lower latency for Indic languages
+# Sentence-end punctuation: Latin (.!?) + Hindi danda (।) + double danda (॥)
+# + Telugu/Kannada/Malayalam full stop (.) in their Sarvam output
+SENTENCE_ENDS = re.compile(r'[.!?।॥]\s*$')
+
+# Indic Unicode ranges — used to skip Latin-only filters on Indic text
+_INDIC_RE = re.compile(
+    r'[\u0C00-\u0C7F'   # Telugu
+    r'\u0900-\u097F'     # Devanagari (Hindi/Marathi)
+    r'\u0980-\u09FF'     # Bengali
+    r'\u0A00-\u0A7F'     # Gurmukhi (Punjabi)
+    r'\u0A80-\u0AFF'     # Gujarati
+    r'\u0B00-\u0B7F'     # Odia
+    r'\u0B80-\u0BFF'     # Tamil
+    r'\u0C80-\u0CFF'     # Kannada
+    r'\u0D00-\u0D7F'     # Malayalam
+    r']'
+)
+
+def _is_indic(text: str) -> bool:
+    """Return True if text contains any Indic script character."""
+    return bool(_INDIC_RE.search(text))
 
 db_client      = None
 db_collection  = None
@@ -747,8 +767,9 @@ def is_sentence_end(text: str) -> bool:
 
 def merge_fragments(fragments: list) -> str:
     joined = " ".join(f.strip() for f in fragments if f.strip())
-    joined = re.sub(r'\s+', ' ', joined).strip()
-    if joined:
+    joined = re.sub(r'[^\S\n]+', ' ', joined).strip()   # collapse spaces but keep structure
+    if joined and not _is_indic(joined):
+        # Only uppercase the first character for Latin scripts
         joined = joined[0].upper() + joined[1:]
     return joined
 
@@ -1348,17 +1369,22 @@ async def translate_ws(client_ws: WebSocket):
     pcm_buffer     = bytearray()
     session_active = True
 
-    print(f"[Session] {session_id} started | mode={mode} lang={language_code}")
+    # Indic languages need a shorter idle timeout because sentence-end punctuation
+    # is less reliable from the STT — flush sooner to avoid losing lines.
+    is_indic_lang  = language_code not in ("en-IN",)
+    idle_timeout   = 0.8 if is_indic_lang else 1.5
+
+    print(f"[Session] {session_id} started | mode={mode} lang={language_code} idle_timeout={idle_timeout}s")
 
     sarvam_client = AsyncSarvamAI(api_subscription_key=SARVAM_API_KEY)
 
     # ── Flush idle fragments ──────────────────────────────────────────────────
     async def flush_idle():
         while session_active:
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.2)
             if frag_buf:
                 elapsed = asyncio.get_event_loop().time() - last_frag_t[0]
-                if elapsed >= 1.5:
+                if elapsed >= idle_timeout:
                     sentence = merge_fragments(frag_buf)
                     frag_buf.clear()
                     if sentence:
@@ -1636,7 +1662,8 @@ async def process_sarvam_msg(msg, client_ws, mode, frag_buf, last_frag_t, all_se
             text = str(text).strip()
             if AI_FEATURES_AVAILABLE and custom_vocabulary:
                 text = apply_custom_vocabulary(text, custom_vocabulary)
-            if len(text) <= 2 and text[-1:] not in '.!?।':
+            # Drop very short Latin fragments (noise), but keep Indic — short Indic words are valid
+            if len(text) <= 2 and text[-1:] not in '.!?।॥' and not _is_indic(text):
                 return
 
             print(f"  [fragment] '{text}'")
