@@ -1022,20 +1022,66 @@ export function StudioPageClient() {
               <option value="paste">Paste cookies</option>
             </select>
             {isHostedEnvironment ? (
-              <p className="rounded-2xl px-4 py-3 text-sm leading-6"
+              <div className="rounded-2xl px-4 py-3 text-sm leading-6"
                 style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", color: "#fde68a" }}>
-                Browser-cookie import works only on local machines. On the deployed app, use{" "}
-                <span className="font-semibold">Paste cookies</span> or <span className="font-semibold">No sign-in</span>.
-              </p>
+                <p className="mb-1">
+                  YouTube blocks requests from cloud servers. Use{" "}
+                  <span className="font-semibold">Paste cookies</span> for reliable imports.
+                </p>
+              </div>
             ) : null}
             {youtubeBrowser === "paste" ? (
-              <textarea
-                className="min-h-[90px] w-full rounded-2xl px-4 py-3 text-sm outline-none transition placeholder:text-white/25"
-                style={INPUT_STYLE}
-                onChange={(e) => setYoutubeCookies(e.target.value)}
-                placeholder="Paste Netscape-format cookies"
-                value={youtubeCookies}
-              />
+              <>
+                <textarea
+                  className="min-h-[90px] w-full rounded-2xl px-4 py-3 text-sm outline-none transition placeholder:text-white/25"
+                  style={INPUT_STYLE}
+                  onChange={(e) => setYoutubeCookies(e.target.value)}
+                  placeholder="Paste Netscape-format cookies here (see instructions below)"
+                  value={youtubeCookies}
+                />
+                <details
+                  className="rounded-2xl px-4 py-3 text-xs leading-5 cursor-pointer"
+                  style={{ background: "rgba(124,58,237,0.06)", border: "1px solid rgba(124,58,237,0.15)", color: "rgba(255,255,255,0.55)" }}
+                >
+                  <summary className="font-semibold text-violet-300 select-none">
+                    How to get YouTube cookies (step-by-step)
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <p className="font-semibold text-violet-300 mb-1">Option 1: Browser Extension (Easiest)</p>
+                      <ol className="list-decimal ml-4 space-y-1">
+                        <li>Install the <strong>&quot;Get cookies.txt LOCALLY&quot;</strong> extension:
+                          <br />Chrome/Edge/Brave: Search &quot;Get cookies.txt LOCALLY&quot; in Chrome Web Store
+                          <br />Firefox: Search in Firefox Add-ons
+                        </li>
+                        <li>Go to <strong>youtube.com</strong> and make sure you are signed in</li>
+                        <li>Click the extension icon in your browser toolbar</li>
+                        <li>Click <strong>&quot;Export&quot;</strong> or <strong>&quot;Get cookies for this tab&quot;</strong></li>
+                        <li>Copy all the text and paste it in the box above</li>
+                      </ol>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-violet-300 mb-1">Option 2: Browser DevTools</p>
+                      <ol className="list-decimal ml-4 space-y-1">
+                        <li>Go to <strong>youtube.com</strong> (make sure you are signed in)</li>
+                        <li>Press <strong>F12</strong> to open DevTools</li>
+                        <li>Go to the <strong>Application</strong> tab (Chrome) or <strong>Storage</strong> tab (Firefox)</li>
+                        <li>Click <strong>Cookies</strong> &rarr; <strong>https://www.youtube.com</strong></li>
+                        <li>You need to convert these to Netscape format — use the extension method instead for easier results</li>
+                      </ol>
+                    </div>
+                    <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)" }}>
+                      <p className="font-semibold text-white/60 mb-1">What the cookies look like:</p>
+                      <pre className="text-[10px] text-white/40 overflow-x-auto whitespace-pre">
+{`# Netscape HTTP Cookie File
+.youtube.com	TRUE	/	TRUE	0	SID	abc123...
+.youtube.com	TRUE	/	TRUE	0	HSID	def456...
+.youtube.com	TRUE	/	TRUE	0	LOGIN_INFO	ghi789...`}
+                      </pre>
+                    </div>
+                  </div>
+                </details>
+              </>
             ) : null}
             <input
               className="h-11 w-full rounded-2xl px-4 text-sm outline-none transition placeholder:text-white/25"
