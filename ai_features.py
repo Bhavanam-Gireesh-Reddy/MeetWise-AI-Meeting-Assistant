@@ -19,6 +19,13 @@ except ImportError:
     yt_dlp = None
     YTDLP_AVAILABLE = False
 
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+    YT_TRANSCRIPT_API_AVAILABLE = True
+except ImportError:
+    YouTubeTranscriptApi = None
+    YT_TRANSCRIPT_API_AVAILABLE = False
+
 from llm import call_groq, call_groq_vision, process_session, translate_transcript
 
 
@@ -672,6 +679,84 @@ def suggest_folder_for_session(session_doc: dict[str, Any], existing_folders: li
     return "general"
 
 
+def _extract_video_id(url: str) -> str | None:
+    """Extract YouTube video ID from various URL formats."""
+    patterns = [
+        r'(?:v=|/v/|youtu\.be/)([a-zA-Z0-9_-]{11})',
+        r'(?:embed/)([a-zA-Z0-9_-]{11})',
+        r'(?:shorts/)([a-zA-Z0-9_-]{11})',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _fetch_transcript_via_api(video_id: str, cookies_content: str = "") -> tuple[str, str]:
+    """Fetch transcript using youtube_transcript_api. Returns (text, language_code)."""
+    if not YT_TRANSCRIPT_API_AVAILABLE:
+        return "", ""
+
+    preferred_langs = [
+        "en", "en-US", "en-IN", "hi", "ta", "te",
+        "kn", "ml", "bn", "mr", "gu", "pa", "or",
+    ]
+
+    try:
+        ytt = YouTubeTranscriptApi()
+        kwargs = {}
+        if cookies_content:
+            # Write cookies to a temp file for the API
+            import tempfile as _tf
+            tmp = _tf.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, prefix="yt_cookies_")
+            tmp.write(cookies_content)
+            tmp.close()
+            kwargs["cookies"] = tmp.name
+
+        transcript_list = ytt.list(video_id, **kwargs)
+
+        # Build a lookup by language code for fast matching
+        manual_by_lang = {}
+        generated_by_lang = {}
+        first_available = None
+        for t in transcript_list:
+            if first_available is None:
+                first_available = t
+            if t.is_generated:
+                generated_by_lang.setdefault(t.language_code, t)
+            else:
+                manual_by_lang.setdefault(t.language_code, t)
+
+        # Pick best transcript: prefer manual in preferred order, then auto-generated
+        best = None
+        for lang in preferred_langs:
+            if lang in manual_by_lang:
+                best = manual_by_lang[lang]
+                break
+        if not best:
+            for lang in preferred_langs:
+                if lang in generated_by_lang:
+                    best = generated_by_lang[lang]
+                    break
+        if not best:
+            best = first_available
+
+        if best:
+            result = ytt.fetch(video_id, languages=[best.language_code], **kwargs)
+            full_text = " ".join(entry.text for entry in result)
+            # Clean up bracket notation like [Music], [Applause] and ♪ symbols
+            full_text = re.sub(r'\[♪+\]', '', full_text)
+            full_text = re.sub(r'\[(?:Music|Applause|Laughter)\]', '', full_text, flags=re.IGNORECASE)
+            full_text = re.sub(r'♪', '', full_text)
+            full_text = re.sub(r'\s+', ' ', full_text).strip()
+            return full_text, best.language_code
+    except Exception as e:
+        print(f"  [YouTube] youtube_transcript_api failed: {e}")
+
+    return "", ""
+
+
 def _parse_vtt_to_text(vtt_text: str) -> str:
     lines = []
     for raw_line in vtt_text.splitlines():
@@ -709,42 +794,38 @@ def import_youtube_transcript(url: str, auth_browser: str = "", cookies_content:
     with tempfile.TemporaryDirectory(prefix="sarvam_yt_") as temp_dir:
         output_template = str(Path(temp_dir) / "%(id)s.%(ext)s")
 
-        # Use multiple player clients for better bot-detection evasion
+        # Cookie handling
+        cookies_file = None
+        if cookies_content:
+            cookies_file = Path(temp_dir) / "cookies.txt"
+            cookies_file.write_text(cookies_content)
+
+        # Step 1 — fetch metadata via yt-dlp (with ignore_no_formats_error
+        # to handle YouTube's PO Token requirements)
         ydl_opts: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
-            "writesubtitles": True,
-            "writeautomaticsub": True,
-            "subtitleslangs": [
-                "en", "en-US", "en-IN", "hi", "ta", "te",
-                "kn", "ml", "bn", "mr", "gu", "pa", "or",
-            ],
-            "subtitlesformat": "vtt",
             "outtmpl": output_template,
             "noplaylist": True,
             "socket_timeout": 30,
+            "ignore_no_formats_error": True,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["mweb", "ios", "web"],
+                    "player_client": ["web"],
                 }
             },
         }
 
-        # Cookie handling
-        cookies_file = None
         if auth_browser and auth_browser != "paste":
             ydl_opts["cookiesfrombrowser"] = (auth_browser,)
-        elif cookies_content:
-            cookies_file = Path(temp_dir) / "cookies.txt"
-            cookies_file.write_text(cookies_content)
+        elif cookies_file:
             ydl_opts["cookiefile"] = str(cookies_file)
 
-        # Step 1 — fetch metadata + subtitles
         info = None
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+                info = ydl.extract_info(url, download=False)
         except Exception as e:
             err = str(e).lower()
             if "sign in" in err or "bot" in err or "captcha" in err:
@@ -757,27 +838,52 @@ def import_youtube_transcript(url: str, auth_browser: str = "", cookies_content:
         if not info:
             raise RuntimeError("Could not fetch YouTube metadata. The video might be private or restricted.")
 
-        video_id = info.get("id")
+        video_id = info.get("id") or _extract_video_id(url)
         if not video_id:
             raise RuntimeError("Missing YouTube video ID in response.")
 
-        # Step 2 — try subtitles first
-        subtitle_files = sorted(Path(temp_dir).glob(f"{video_id}*.vtt"))
+        # Step 2 — try youtube_transcript_api first (reliable, no PO Token needed)
         transcript_text = ""
         picked_language = ""
 
-        if subtitle_files:
-            for file_path in subtitle_files:
-                text = _parse_vtt_to_text(
-                    file_path.read_text(encoding="utf-8", errors="ignore")
-                )
-                if text:
-                    transcript_text = text
-                    suffix = file_path.stem.replace(video_id, "").strip(".")
-                    picked_language = suffix or "unknown"
-                    break
+        print(f"  [YouTube] Fetching transcript for {video_id} via transcript API...")
+        transcript_text, picked_language = _fetch_transcript_via_api(
+            video_id, cookies_content=cookies_content
+        )
+        if transcript_text:
+            print(f"  [YouTube] Got {len(transcript_text)} chars via transcript API (lang={picked_language})")
 
-        # Step 3 — fallback: download audio and transcribe via Groq Whisper
+        # Step 2b — fallback: try yt-dlp VTT subtitles
+        if not transcript_text:
+            print("  [YouTube] Transcript API failed, trying yt-dlp subtitles...")
+            ydl_opts_subs = {
+                **ydl_opts,
+                "writesubtitles": True,
+                "writeautomaticsub": True,
+                "subtitleslangs": [
+                    "en", "en-US", "en-IN", "hi", "ta", "te",
+                    "kn", "ml", "bn", "mr", "gu", "pa", "or",
+                ],
+                "subtitlesformat": "vtt",
+            }
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts_subs) as ydl:
+                    ydl.extract_info(url, download=True)
+                subtitle_files = sorted(Path(temp_dir).glob(f"{video_id}*.vtt"))
+                for file_path in subtitle_files:
+                    text = _parse_vtt_to_text(
+                        file_path.read_text(encoding="utf-8", errors="ignore")
+                    )
+                    if text:
+                        transcript_text = text
+                        suffix = file_path.stem.replace(video_id, "").strip(".")
+                        picked_language = suffix or "unknown"
+                        print(f"  [YouTube] Got {len(transcript_text)} chars via yt-dlp VTT (lang={picked_language})")
+                        break
+            except Exception as e:
+                print(f"  [YouTube] yt-dlp subtitle download failed: {e}")
+
+        # Step 3 — fallback: download audio and transcribe via Groq Whisper / Sarvam
         if not transcript_text:
             print("  [YouTube] No usable subtitles — falling back to audio transcription")
 
@@ -799,7 +905,7 @@ def import_youtube_transcript(url: str, auth_browser: str = "", cookies_content:
                 "noplaylist": True,
                 "socket_timeout": 30,
                 "extractor_args": {
-                    "youtube": {"player_client": ["mweb", "ios", "web"]}
+                    "youtube": {"player_client": ["web"]}
                 },
             }
             if auth_browser and auth_browser != "paste":
@@ -847,9 +953,9 @@ def import_youtube_transcript(url: str, auth_browser: str = "", cookies_content:
                     if res.status_code == 200:
                         transcript_text = res.json().get("text", "").strip()
                         picked_language = "whisper_auto"
-                        print(f"  [YouTube] ✅ Groq Whisper transcribed {len(transcript_text)} chars")
+                        print(f"  [YouTube] Groq Whisper transcribed {len(transcript_text)} chars")
                 except Exception as whisper_err:
-                    print(f"  [YouTube] ⚠️ Groq Whisper failed: {whisper_err}")
+                    print(f"  [YouTube] Groq Whisper failed: {whisper_err}")
 
             # Fallback to Sarvam STT
             if not transcript_text and sarvam_key and sarvam_key != "YOUR_SARVAM_API_KEY_HERE":
@@ -866,17 +972,17 @@ def import_youtube_transcript(url: str, auth_browser: str = "", cookies_content:
                     if res.status_code == 200:
                         transcript_text = res.json().get("transcript", "").strip()
                         picked_language = res.json().get("language_code", "sarvam_auto")
-                        print(f"  [YouTube] ✅ Sarvam STT transcribed {len(transcript_text)} chars")
+                        print(f"  [YouTube] Sarvam STT transcribed {len(transcript_text)} chars")
                     elif res.status_code == 413:
                         raise RuntimeError(
                             "Video audio is too large for Sarvam API. Try a shorter video."
                         )
                     else:
-                        print(f"  [YouTube] ⚠️ Sarvam STT error {res.status_code}: {res.text[:200]}")
+                        print(f"  [YouTube] Sarvam STT error {res.status_code}: {res.text[:200]}")
                 except RuntimeError:
                     raise
                 except Exception as sarvam_err:
-                    print(f"  [YouTube] ⚠️ Sarvam STT failed: {sarvam_err}")
+                    print(f"  [YouTube] Sarvam STT failed: {sarvam_err}")
 
             if not transcript_text:
                 raise RuntimeError(
