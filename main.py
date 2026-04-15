@@ -777,6 +777,16 @@ async def youtube_import(body: dict, request: Request, x_api_key: str = Header(d
 
 # ── Meeting Integrations ────────────────────────────────────────────────────
 
+def _get_tokens_col():
+    """Get meeting_tokens collection, or None if MongoDB unavailable."""
+    if mongo_client is None:
+        return None
+    try:
+        return mongo_client[MONGO_DB]["meeting_tokens"]
+    except Exception:
+        return None
+
+
 @app.get("/api/meetings/status")
 async def meetings_status(request: Request, x_api_key: str = Header(default="")):
     """Check which meeting integrations are configured."""
@@ -788,8 +798,8 @@ async def meetings_status(request: Request, x_api_key: str = Header(default=""))
     status = get_integration_status()
     # Check if user has connected tokens stored in DB
     user_id = user.get("sub", "")
-    if db_collection is not None:
-        tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is not None:
         user_tokens = await tokens_col.find_one({"user_id": user_id})
         if user_tokens:
             status["zoom"]["connected"] = bool(user_tokens.get("zoom_access_token"))
@@ -825,8 +835,8 @@ async def zoom_callback(body: dict, request: Request, x_api_key: str = Header(de
         return JSONResponse({"error": f"Zoom auth failed: {e}"}, status_code=400)
     # Store tokens in DB
     user_id = user.get("sub", "")
-    if db_collection is not None:
-        tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is not None:
         await tokens_col.update_one(
             {"user_id": user_id},
             {"$set": {
@@ -845,7 +855,9 @@ async def zoom_meetings_list(request: Request, x_api_key: str = Header(default="
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     user_id = user.get("sub", "")
-    tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
     user_tokens = await tokens_col.find_one({"user_id": user_id})
     if not user_tokens or not user_tokens.get("zoom_access_token"):
         return JSONResponse({"error": "Zoom not connected"}, status_code=400)
@@ -877,7 +889,9 @@ async def zoom_transcribe(body: dict, request: Request, x_api_key: str = Header(
     if not meeting_id:
         return JSONResponse({"error": "meeting_id required"}, status_code=400)
     user_id = user.get("sub", "")
-    tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
     user_tokens = await tokens_col.find_one({"user_id": user_id})
     if not user_tokens or not user_tokens.get("zoom_access_token"):
         return JSONResponse({"error": "Zoom not connected"}, status_code=400)
@@ -949,8 +963,8 @@ async def google_callback(body: dict, request: Request, x_api_key: str = Header(
     except Exception as e:
         return JSONResponse({"error": f"Google auth failed: {e}"}, status_code=400)
     user_id = user.get("sub", "")
-    if db_collection is not None:
-        tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is not None:
         await tokens_col.update_one(
             {"user_id": user_id},
             {"$set": {
@@ -969,7 +983,9 @@ async def google_meetings_list(request: Request, x_api_key: str = Header(default
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     user_id = user.get("sub", "")
-    tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
     user_tokens = await tokens_col.find_one({"user_id": user_id})
     if not user_tokens or not user_tokens.get("google_access_token"):
         return JSONResponse({"error": "Google not connected"}, status_code=400)
@@ -1016,8 +1032,8 @@ async def webex_callback(body: dict, request: Request, x_api_key: str = Header(d
     except Exception as e:
         return JSONResponse({"error": f"Webex auth failed: {e}"}, status_code=400)
     user_id = user.get("sub", "")
-    if db_collection is not None:
-        tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is not None:
         await tokens_col.update_one(
             {"user_id": user_id},
             {"$set": {
@@ -1036,7 +1052,9 @@ async def webex_meetings_list(request: Request, x_api_key: str = Header(default=
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     user_id = user.get("sub", "")
-    tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
     user_tokens = await tokens_col.find_one({"user_id": user_id})
     if not user_tokens or not user_tokens.get("webex_access_token"):
         return JSONResponse({"error": "Webex not connected"}, status_code=400)
@@ -1067,7 +1085,9 @@ async def webex_transcribe(body: dict, request: Request, x_api_key: str = Header
     if not meeting_id:
         return JSONResponse({"error": "meeting_id required"}, status_code=400)
     user_id = user.get("sub", "")
-    tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
     user_tokens = await tokens_col.find_one({"user_id": user_id})
     if not user_tokens or not user_tokens.get("webex_access_token"):
         return JSONResponse({"error": "Webex not connected"}, status_code=400)
@@ -1117,7 +1137,9 @@ async def all_meetings(request: Request, x_api_key: str = Header(default="")):
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     user_id = user.get("sub", "")
-    tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
     user_tokens = await tokens_col.find_one({"user_id": user_id}) or {}
 
     all_items = []
@@ -1163,7 +1185,9 @@ async def disconnect_platform(body: dict, request: Request, x_api_key: str = Hea
     if platform not in ("zoom", "google", "webex"):
         return JSONResponse({"error": "Invalid platform"}, status_code=400)
     user_id = user.get("sub", "")
-    tokens_col = mongo_client[MONGO_DB]["meeting_tokens"]
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
     unset_fields = {
         f"{platform}_access_token": "",
         f"{platform}_refresh_token": "",

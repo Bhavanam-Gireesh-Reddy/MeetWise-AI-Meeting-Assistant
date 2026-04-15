@@ -14,6 +14,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 from pathlib import Path
+from urllib.parse import urlencode
 
 try:
     from dotenv import load_dotenv as _load_dotenv
@@ -77,9 +78,7 @@ def get_zoom_auth_url(state: str = "") -> str:
         "redirect_uri": ZOOM_REDIRECT_URI,
         "state": state,
     }
-    query = "&".join(f"{k}={httpx.URL('').copy_with(params={k: v}).params[k]}"
-                     for k, v in params.items())
-    return f"{ZOOM_AUTH_URL}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
+    return f"{ZOOM_AUTH_URL}?{urlencode(params)}"
 
 
 async def exchange_zoom_code(code: str) -> dict[str, Any]:
@@ -232,7 +231,7 @@ def get_google_auth_url(state: str = "") -> str:
         "prompt": "consent",
         "state": state,
     }
-    return f"{GOOGLE_AUTH_URL}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
+    return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
 
 
 async def exchange_google_code(code: str) -> dict[str, Any]:
@@ -365,7 +364,7 @@ def get_webex_auth_url(state: str = "") -> str:
         "scope": "meeting:schedules_read meeting:recordings_read meeting:transcripts_read",
         "state": state,
     }
-    return f"{WEBEX_AUTH_URL}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
+    return f"{WEBEX_AUTH_URL}?{urlencode(params)}"
 
 
 async def exchange_webex_code(code: str) -> dict[str, Any]:
