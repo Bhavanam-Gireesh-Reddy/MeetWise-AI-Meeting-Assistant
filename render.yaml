@@ -46,3 +46,5 @@ services:
           type: web
           name: meetwise-api
           envVarKey: RENDER_EXTERNAL_URL
+      - key: EXPLICIT_LOG_LEVEL
+        value: "debug"

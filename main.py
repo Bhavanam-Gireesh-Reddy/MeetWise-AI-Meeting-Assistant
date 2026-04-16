@@ -1517,7 +1517,8 @@ async def translate_ws(client_ws: WebSocket):
 
         # 3. Save to MongoDB
         raw_title   = result.get("title", "")
-        final_title = await resolve_title(raw_title, ws_user_id)
+        final_user_id = ws_user_id if ws_user_id else "local"  # Fallback to "local" if no auth
+        final_title = await resolve_title(raw_title, final_user_id)
         await save_to_mongo(
             session_id, started_at, language_code, mode,
             list(all_sentences),
@@ -1526,7 +1527,7 @@ async def translate_ws(client_ws: WebSocket):
             result.get("corrected_transcript", ""),
             final_title,
             result.get("notes", ""),
-            ws_user_id,
+            final_user_id,
             result.get("speakers", []),
             extra_fields={
                 "target_lang": target_lang,
@@ -1760,4 +1761,4 @@ async def list_folders(request: Request, x_api_key: str = Header(default="")):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=int(os.getenv("PORT", 3000)), reload=True, log_level="info")
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True, log_level="info")
