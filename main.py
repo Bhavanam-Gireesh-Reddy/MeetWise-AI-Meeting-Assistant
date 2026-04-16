@@ -258,7 +258,7 @@ async def health_check():
     return JSONResponse(
         {
             "ok": True,
-            "service": "meetwise-api",
+            "service": "vaak-api",
             "auth_available": bool(AUTH_AVAILABLE),
             "mongo_connected": db_collection is not None,
             "frontend_url_configured": bool(get_frontend_url()),
