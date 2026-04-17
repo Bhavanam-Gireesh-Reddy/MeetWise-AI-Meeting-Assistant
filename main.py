@@ -506,7 +506,7 @@ async def me(request: Request):
 # ── Protected page routes ─────────────────────────────────────────────────────
 @app.get("/")
 async def index(request: Request):
-    return frontend_redirect("/dashboard")
+    return frontend_redirect("/")
 
 @app.get("/live")
 async def live(request: Request):
