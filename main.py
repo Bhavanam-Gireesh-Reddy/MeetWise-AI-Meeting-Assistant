@@ -104,6 +104,7 @@ except ImportError as e:
 
 SARVAM_API_KEY     = os.getenv("SARVAM_API_KEY",     "YOUR_SARVAM_API_KEY_HERE")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "YOUR_GROQ_API_KEY_HERE")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 USE_REDIS      = os.getenv("USE_REDIS",      "false").lower() == "true"
 REDIS_URI      = os.getenv("REDIS_URI",      "redis://localhost:6379")
 MONGO_URI      = os.getenv("MONGO_URI",      "mongodb://localhost:27017")
@@ -186,9 +187,10 @@ async def lifespan(app: FastAPI):
     global db_client, db_collection, users_col, redis_client
     if LLM_AVAILABLE:
         llm_module.GROQ_API_KEY = GROQ_API_KEY
-        llm_module.HEADERS["Authorization"] = f"Bearer {GROQ_API_KEY}"
-        ok = GROQ_API_KEY != "YOUR_GROQ_API_KEY_HERE"
-        print(f"{'✅' if ok else '⚠️ '} Groq {'ready' if ok else 'API key not set'}")
+        gem_ok = GEMINI_API_KEY not in ("", "YOUR_GEMINI_API_KEY_HERE")
+        groq_ok = GROQ_API_KEY != "YOUR_GROQ_API_KEY_HERE"
+        print(f"{'✅' if gem_ok else '⚠️ '} Gemini API / Gemma 4 {'ready' if gem_ok else 'GEMINI_API_KEY not set'}")
+        print(f"{'✅' if groq_ok else '⚠️ '} Groq Vision {'ready' if groq_ok else 'GROQ_API_KEY not set (vision/OCR disabled)'}")
     if MONGO_AVAILABLE:
         try:
             db_client     = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
@@ -221,8 +223,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Sarvam Live Transcription API",
-    description="Live speech transcription and translation powered by Sarvam AI",
+    title="Vaak AI API",
+    description="Live speech transcription, translation, and AI study tools powered by Sarvam AI and Gemini",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/api/docs",
@@ -395,7 +397,7 @@ async def setup_page():
     """Bootstrap admin page — open this in browser to claim admin."""
     html = """<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
-<title>Admin Setup — Sarvam AI</title>
+<title>Admin Setup — Vaak AI</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#080c10;color:#e2eaf4;font-family:'Segoe UI',sans-serif;
@@ -1516,24 +1518,14 @@ async def v1_list_sessions(
     if db_collection is None:
         return JSONResponse({"error": "DB not connected"}, status_code=503)
     skip   = (page - 1) * limit
-    # Include sessions owned by this user AND orphaned sessions (empty user_id)
+    # Only return sessions owned by this user — never expose orphaned sessions
     if AUTH_AVAILABLE:
-        query = {"$or": [{"user_id": user["sub"]}, {"user_id": ""}]}
+        query = {"user_id": user["sub"]}
     else:
         query = {}
     cursor = db_collection.find(query, {"_id": 0, "sentences": 0}).sort("started_at", -1).skip(skip).limit(limit)
     total  = await db_collection.count_documents(query)
     items  = await cursor.to_list(length=limit)
-    # Claim orphaned sessions for this user so they show up correctly next time
-    if AUTH_AVAILABLE and any(s.get("user_id") == "" for s in items):
-        orphan_ids = [s["session_id"] for s in items if s.get("user_id") == ""]
-        await db_collection.update_many(
-            {"session_id": {"$in": orphan_ids}, "user_id": ""},
-            {"$set": {"user_id": user["sub"]}},
-        )
-        for s in items:
-            if s.get("user_id") == "":
-                s["user_id"] = user["sub"]
     return JSONResponse({"page": page, "limit": limit, "total": total, "sessions": items})
 
 
@@ -1919,11 +1911,11 @@ async def translate_ws(client_ws: WebSocket):
             except Exception:
                 pass
 
-            if LLM_AVAILABLE and os.getenv("GROQ_API_KEY", "") not in ("", "YOUR_GROQ_API_KEY_HERE"):
-                print(f"  [LLM] Calling Groq...")
+            if LLM_AVAILABLE and os.getenv("GEMINI_API_KEY", "") not in ("", "YOUR_GEMINI_API_KEY_HERE"):
+                print(f"  [LLM] Calling {os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')} via Gemini API...")
                 result = await process_session(all_sentences)
             else:
-                print(f"  [LLM] Skipped — LLM_AVAILABLE={LLM_AVAILABLE}, key set={GROQ_API_KEY != 'YOUR_GROQ_API_KEY_HERE'}")
+                print(f"  [LLM] Skipped — LLM_AVAILABLE={LLM_AVAILABLE}, GEMINI_API_KEY set={bool(os.getenv('GEMINI_API_KEY', ''))}")
 
             # 2. Send analysis results to browser while connection is open
             try:
