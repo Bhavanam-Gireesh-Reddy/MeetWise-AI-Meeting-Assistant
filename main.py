@@ -64,10 +64,25 @@ except ImportError:
     print("WARNING: llm.py not found or httpx not installed.")
 
 try:
+    from meetings import (
+        get_integration_status,
+        zoom_available, get_zoom_auth_url, exchange_zoom_code, refresh_zoom_token,
+        get_zoom_meetings, get_zoom_recording_transcript, verify_zoom_webhook,
+        google_available, get_google_auth_url, exchange_google_code, refresh_google_token,
+        get_google_calendar_meetings,
+        webex_available, get_webex_auth_url, exchange_webex_code, refresh_webex_token,
+        get_webex_meetings, get_webex_meeting_transcript,
+        process_meeting_transcript,
+    )
+    MEETINGS_AVAILABLE = True
+except ImportError as e:
+    MEETINGS_AVAILABLE = False
+    print(f"WARNING: meetings module unavailable: {e}")
+
+try:
     from ai_features import (
         analyze_sentiment_text,
         apply_custom_vocabulary,
-        build_youtube_session,
         chat_with_transcript,
         extract_action_items,
         generate_flashcards,
@@ -697,66 +712,429 @@ async def session_chat(session_id: str, body: dict, request: Request, x_api_key:
     return JSONResponse({"answer": answer, "chat_history": new_history})
 
 
-@app.post("/api/youtube/import")
-async def youtube_import(body: dict, request: Request, x_api_key: str = Header(default="")):
-    if db_collection is None:
-        return JSONResponse({"error": "MongoDB not connected"}, status_code=503)
+# ── Meeting Integrations ────────────────────────────────────────────────────
+
+def _get_tokens_col():
+    """Get meeting_tokens collection, or None if MongoDB unavailable."""
+    if db_client is None:
+        return None
+    try:
+        return db_client[MONGO_DB]["meeting_tokens"]
+    except Exception:
+        return None
+
+
+@app.get("/api/meetings/status")
+async def meetings_status(request: Request, x_api_key: str = Header(default="")):
+    """Check which meeting integrations are configured."""
     user = await get_authenticated_user(request, x_api_key)
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    url = (body.get("url") or "").strip()
-    auth_browser = (body.get("auth_browser") or "").strip()
-    cookies_content = (body.get("cookies_content") or "").strip()
-    if not url:
-        return JSONResponse({"error": "YouTube URL is required"}, status_code=400)
-    if auth_browser and auth_browser != "paste" and is_deployed_environment():
-        return JSONResponse(
-            {
-                "error": (
-                    "Browser cookie import only works on a local machine where that browser is installed. "
-                    "On the deployed app, use 'Paste cookies' or 'No sign-in'."
-                )
-            },
-            status_code=400,
-        )
-
-    try:
-        yt_data = await build_youtube_session(url, auth_browser, cookies_content)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
-
-    imported = yt_data["imported"]
-    analysis = yt_data["analysis"]
-    session_id = "yt_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    started_at = datetime.now(timezone.utc)
+    if not MEETINGS_AVAILABLE:
+        return JSONResponse({"error": "Meeting integrations not available"}, status_code=503)
+    status = get_integration_status()
+    # Check if user has connected tokens stored in DB
     user_id = user.get("sub", "")
-    final_title = await resolve_title(analysis.get("title") or imported.get("title") or "YouTube Import", user_id)
+    tokens_col = _get_tokens_col()
+    if tokens_col is not None:
+        user_tokens = await tokens_col.find_one({"user_id": user_id})
+        if user_tokens:
+            status["zoom"]["connected"] = bool(user_tokens.get("zoom_access_token"))
+            status["google"]["connected"] = bool(user_tokens.get("google_access_token"))
+            status["webex"]["connected"] = bool(user_tokens.get("webex_access_token"))
+    return JSONResponse(status)
 
+
+# ── Zoom OAuth ──
+
+@app.get("/api/meetings/zoom/auth")
+async def zoom_auth_redirect(request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if not MEETINGS_AVAILABLE or not zoom_available():
+        return JSONResponse({"error": "Zoom integration not configured"}, status_code=503)
+    url = get_zoom_auth_url(state=user.get("sub", ""))
+    return JSONResponse({"auth_url": url})
+
+
+@app.post("/api/meetings/zoom/callback")
+async def zoom_callback(body: dict, request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    code = body.get("code", "")
+    if not code:
+        return JSONResponse({"error": "Authorization code required"}, status_code=400)
+    try:
+        tokens = await exchange_zoom_code(code)
+    except Exception as e:
+        return JSONResponse({"error": f"Zoom auth failed: {e}"}, status_code=400)
+    # Store tokens in DB
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is not None:
+        await tokens_col.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "zoom_access_token": tokens.get("access_token"),
+                "zoom_refresh_token": tokens.get("refresh_token"),
+                "zoom_token_expires": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+    return JSONResponse({"ok": True, "message": "Zoom connected successfully"})
+
+
+@app.get("/api/meetings/zoom/meetings")
+async def zoom_meetings_list(request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+    user_tokens = await tokens_col.find_one({"user_id": user_id})
+    if not user_tokens or not user_tokens.get("zoom_access_token"):
+        return JSONResponse({"error": "Zoom not connected"}, status_code=400)
+    try:
+        meetings = await get_zoom_meetings(user_tokens["zoom_access_token"])
+    except PermissionError:
+        # Token expired — try refresh
+        try:
+            new_tokens = await refresh_zoom_token(user_tokens["zoom_refresh_token"])
+            await tokens_col.update_one(
+                {"user_id": user_id},
+                {"$set": {"zoom_access_token": new_tokens["access_token"]}},
+            )
+            meetings = await get_zoom_meetings(new_tokens["access_token"])
+        except Exception as e:
+            return JSONResponse({"error": f"Zoom token refresh failed: {e}"}, status_code=401)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse({"meetings": meetings})
+
+
+@app.post("/api/meetings/zoom/transcribe")
+async def zoom_transcribe(body: dict, request: Request, x_api_key: str = Header(default="")):
+    """Get transcript from a completed Zoom meeting recording."""
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    meeting_id = body.get("meeting_id", "")
+    if not meeting_id:
+        return JSONResponse({"error": "meeting_id required"}, status_code=400)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+    user_tokens = await tokens_col.find_one({"user_id": user_id})
+    if not user_tokens or not user_tokens.get("zoom_access_token"):
+        return JSONResponse({"error": "Zoom not connected"}, status_code=400)
+    try:
+        recording = await get_zoom_recording_transcript(
+            user_tokens["zoom_access_token"], meeting_id
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    if "error" in recording:
+        return JSONResponse(recording, status_code=404)
+
+    transcript_text = recording.get("transcript", "")
+    if not transcript_text:
+        return JSONResponse({"error": "No transcript available for this recording"}, status_code=404)
+
+    # Process through AI pipeline
+    processed = await process_meeting_transcript(
+        transcript_text, recording.get("topic", "Zoom Meeting"), "zoom"
+    )
+    session_id = "zm_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    final_title = await resolve_title(
+        processed["analysis"].get("title") or recording.get("topic", "Zoom Meeting"), user_id
+    )
     await save_to_mongo(
-        session_id,
-        started_at,
-        imported.get("language") or "youtube",
-        "youtube",
-        yt_data["sentences"],
-        analysis.get("filtered_transcript", ""),
-        analysis.get("summary", ""),
-        analysis.get("corrected_transcript", imported.get("transcript", "")),
+        session_id, datetime.now(timezone.utc), "en", "meeting",
+        processed["sentences"],
+        processed["analysis"].get("filtered_transcript", ""),
+        processed["analysis"].get("summary", ""),
+        processed["analysis"].get("corrected_transcript", transcript_text),
         final_title,
-        analysis.get("notes", ""),
+        processed["analysis"].get("notes", ""),
         user_id,
-        analysis.get("speakers", []),
+        processed["analysis"].get("speakers", []),
         extra_fields={
-            "source_type": "youtube",
-            "source_url": imported.get("webpage_url", url),
-            "source_channel": imported.get("channel", ""),
-            "thumbnail": imported.get("thumbnail", ""),
-            "description": imported.get("description", ""),
-            "sentiment_timeline": yt_data.get("sentiment_timeline", []),
-            "sentiment_summary": summarize_sentiment_timeline(yt_data.get("sentiment_timeline", [])),
+            "source_type": "zoom_meeting",
+            "source_meeting_id": meeting_id,
+            "sentiment_timeline": processed["sentiment_timeline"],
+            "sentiment_summary": processed["sentiment_summary"],
         },
     )
     return JSONResponse({"ok": True, "session_id": session_id, "title": final_title})
+
+
+# ── Google Calendar OAuth ──
+
+@app.get("/api/meetings/google/auth")
+async def google_auth_redirect(request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if not MEETINGS_AVAILABLE or not google_available():
+        return JSONResponse({"error": "Google integration not configured"}, status_code=503)
+    url = get_google_auth_url(state=user.get("sub", ""))
+    return JSONResponse({"auth_url": url})
+
+
+@app.post("/api/meetings/google/callback")
+async def google_callback(body: dict, request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    code = body.get("code", "")
+    if not code:
+        return JSONResponse({"error": "Authorization code required"}, status_code=400)
+    try:
+        tokens = await exchange_google_code(code)
+    except Exception as e:
+        return JSONResponse({"error": f"Google auth failed: {e}"}, status_code=400)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is not None:
+        await tokens_col.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "google_access_token": tokens.get("access_token"),
+                "google_refresh_token": tokens.get("refresh_token"),
+                "google_token_expires": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+    return JSONResponse({"ok": True, "message": "Google Calendar connected successfully"})
+
+
+@app.get("/api/meetings/google/meetings")
+async def google_meetings_list(request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+    user_tokens = await tokens_col.find_one({"user_id": user_id})
+    if not user_tokens or not user_tokens.get("google_access_token"):
+        return JSONResponse({"error": "Google not connected"}, status_code=400)
+    try:
+        meetings = await get_google_calendar_meetings(user_tokens["google_access_token"])
+    except PermissionError:
+        try:
+            new_tokens = await refresh_google_token(user_tokens["google_refresh_token"])
+            await tokens_col.update_one(
+                {"user_id": user_id},
+                {"$set": {"google_access_token": new_tokens["access_token"]}},
+            )
+            meetings = await get_google_calendar_meetings(new_tokens["access_token"])
+        except Exception as e:
+            return JSONResponse({"error": f"Google token refresh failed: {e}"}, status_code=401)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse({"meetings": meetings})
+
+
+# ── Webex OAuth ──
+
+@app.get("/api/meetings/webex/auth")
+async def webex_auth_redirect(request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if not MEETINGS_AVAILABLE or not webex_available():
+        return JSONResponse({"error": "Webex integration not configured"}, status_code=503)
+    url = get_webex_auth_url(state=user.get("sub", ""))
+    return JSONResponse({"auth_url": url})
+
+
+@app.post("/api/meetings/webex/callback")
+async def webex_callback(body: dict, request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    code = body.get("code", "")
+    if not code:
+        return JSONResponse({"error": "Authorization code required"}, status_code=400)
+    try:
+        tokens = await exchange_webex_code(code)
+    except Exception as e:
+        return JSONResponse({"error": f"Webex auth failed: {e}"}, status_code=400)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is not None:
+        await tokens_col.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "webex_access_token": tokens.get("access_token"),
+                "webex_refresh_token": tokens.get("refresh_token"),
+                "webex_token_expires": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+    return JSONResponse({"ok": True, "message": "Webex connected successfully"})
+
+
+@app.get("/api/meetings/webex/meetings")
+async def webex_meetings_list(request: Request, x_api_key: str = Header(default="")):
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+    user_tokens = await tokens_col.find_one({"user_id": user_id})
+    if not user_tokens or not user_tokens.get("webex_access_token"):
+        return JSONResponse({"error": "Webex not connected"}, status_code=400)
+    try:
+        meetings = await get_webex_meetings(user_tokens["webex_access_token"])
+    except PermissionError:
+        try:
+            new_tokens = await refresh_webex_token(user_tokens["webex_refresh_token"])
+            await tokens_col.update_one(
+                {"user_id": user_id},
+                {"$set": {"webex_access_token": new_tokens["access_token"]}},
+            )
+            meetings = await get_webex_meetings(new_tokens["access_token"])
+        except Exception as e:
+            return JSONResponse({"error": f"Webex token refresh failed: {e}"}, status_code=401)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse({"meetings": meetings})
+
+
+@app.post("/api/meetings/webex/transcribe")
+async def webex_transcribe(body: dict, request: Request, x_api_key: str = Header(default="")):
+    """Get transcript from a completed Webex meeting."""
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    meeting_id = body.get("meeting_id", "")
+    if not meeting_id:
+        return JSONResponse({"error": "meeting_id required"}, status_code=400)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+    user_tokens = await tokens_col.find_one({"user_id": user_id})
+    if not user_tokens or not user_tokens.get("webex_access_token"):
+        return JSONResponse({"error": "Webex not connected"}, status_code=400)
+    try:
+        result = await get_webex_meeting_transcript(
+            user_tokens["webex_access_token"], meeting_id
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    if "error" in result:
+        return JSONResponse(result, status_code=404)
+
+    transcript_text = result.get("transcript", "")
+    processed = await process_meeting_transcript(
+        transcript_text, "Webex Meeting", "webex"
+    )
+    session_id = "wx_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    final_title = await resolve_title(
+        processed["analysis"].get("title") or "Webex Meeting", user_id
+    )
+    await save_to_mongo(
+        session_id, datetime.now(timezone.utc), "en", "meeting",
+        processed["sentences"],
+        processed["analysis"].get("filtered_transcript", ""),
+        processed["analysis"].get("summary", ""),
+        processed["analysis"].get("corrected_transcript", transcript_text),
+        final_title,
+        processed["analysis"].get("notes", ""),
+        user_id,
+        processed["analysis"].get("speakers", []),
+        extra_fields={
+            "source_type": "webex_meeting",
+            "source_meeting_id": meeting_id,
+            "sentiment_timeline": processed["sentiment_timeline"],
+            "sentiment_summary": processed["sentiment_summary"],
+        },
+    )
+    return JSONResponse({"ok": True, "session_id": session_id, "title": final_title})
+
+
+# ── All Meetings (Combined) ──
+
+@app.get("/api/meetings/all")
+async def all_meetings(request: Request, x_api_key: str = Header(default="")):
+    """Fetch meetings from all connected platforms."""
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+    user_tokens = await tokens_col.find_one({"user_id": user_id}) or {}
+
+    all_items = []
+    errors = {}
+
+    # Fetch from all connected platforms concurrently
+    tasks = []
+    platforms = []
+
+    if user_tokens.get("zoom_access_token"):
+        tasks.append(get_zoom_meetings(user_tokens["zoom_access_token"]))
+        platforms.append("zoom")
+    if user_tokens.get("google_access_token"):
+        tasks.append(get_google_calendar_meetings(user_tokens["google_access_token"]))
+        platforms.append("google")
+    if user_tokens.get("webex_access_token"):
+        tasks.append(get_webex_meetings(user_tokens["webex_access_token"]))
+        platforms.append("webex")
+
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for platform, result in zip(platforms, results):
+            if isinstance(result, Exception):
+                errors[platform] = str(result)
+            else:
+                all_items.extend(result)
+
+    # Sort by start time
+    all_items.sort(key=lambda m: m.get("start_time", ""))
+
+    return JSONResponse({"meetings": all_items, "errors": errors})
+
+
+# ── Disconnect Integration ──
+
+@app.post("/api/meetings/disconnect")
+async def disconnect_platform(body: dict, request: Request, x_api_key: str = Header(default="")):
+    """Disconnect a meeting platform."""
+    user = await get_authenticated_user(request, x_api_key)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    platform = body.get("platform", "")
+    if platform not in ("zoom", "google", "webex"):
+        return JSONResponse({"error": "Invalid platform"}, status_code=400)
+    user_id = user.get("sub", "")
+    tokens_col = _get_tokens_col()
+    if tokens_col is None:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+    unset_fields = {
+        f"{platform}_access_token": "",
+        f"{platform}_refresh_token": "",
+        f"{platform}_token_expires": "",
+    }
+    await tokens_col.update_one(
+        {"user_id": user_id},
+        {"$unset": unset_fields},
+    )
+    return JSONResponse({"ok": True, "message": f"{platform} disconnected"})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

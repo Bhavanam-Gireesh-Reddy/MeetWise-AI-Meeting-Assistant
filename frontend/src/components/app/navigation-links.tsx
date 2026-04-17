@@ -9,6 +9,7 @@ import {
   ListCollapse,
   Sparkles,
   Shield,
+  Video,
 } from "lucide-react";
 
 const baseNavigation = [
@@ -17,6 +18,7 @@ const baseNavigation = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/history",   label: "History",   icon: ListCollapse },
   { href: "/studio",    label: "Studio",    icon: Sparkles },
+  { href: "/meetings",  label: "Meetings",  icon: Video },
 ];
 
 export function NavigationLinks({

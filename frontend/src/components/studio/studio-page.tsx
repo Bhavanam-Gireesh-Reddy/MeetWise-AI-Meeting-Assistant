@@ -16,7 +16,6 @@ import {
   RefreshCcw,
   Search,
   Sparkles,
-  Video,
   CheckSquare,
   Upload,
 } from "lucide-react";
@@ -513,17 +512,10 @@ export function StudioPageClient() {
   const [translationTarget, setTranslationTarget] = useState("same");
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [youtubeBrowser, setYoutubeBrowser] = useState("");
-  const [youtubeCookies, setYoutubeCookies] = useState("");
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
   const [flashcardIndex, setFlashcardIndex] = useState(0);
   const [quizIndex, setQuizIndex] = useState(0);
-  const [isHostedEnvironment, setIsHostedEnvironment] = useState(false);
-  const [youtubeStatus, setYoutubeStatus] = useState(
-    "Import a YouTube transcript and turn it into a normal study session.",
-  );
   const deferredSearch = useDeferredValue(search);
 
   const filteredSessions = sessions.filter((session) => {
@@ -541,13 +533,6 @@ export function StudioPageClient() {
       .toLowerCase();
     return hay.includes(q);
   });
-
-  useEffect(() => {
-    setIsHostedEnvironment(
-      typeof window !== "undefined" &&
-        !["localhost", "127.0.0.1"].includes(window.location.hostname),
-    );
-  }, []);
 
   useEffect(() => {
     async function initializeStudio() {
@@ -715,41 +700,6 @@ export function StudioPageClient() {
     } catch (chatError) {
       setChatHistory(previousHistory);
       setError(chatError instanceof Error ? chatError.message : "Chat failed.");
-    } finally {
-      setBusyKey("");
-    }
-  }
-
-  async function importYouTubeSession() {
-    if (!youtubeUrl.trim()) {
-      setError("Paste a YouTube URL first.");
-      return;
-    }
-    setBusyKey("youtube");
-    setError("");
-    setYoutubeStatus("Importing transcript and creating a study session...");
-    try {
-      const response = await fetch("/api/proxy/youtube/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: youtubeUrl.trim(),
-          auth_browser: youtubeBrowser,
-          cookies_content: youtubeBrowser === "paste" ? youtubeCookies.trim() : "",
-        }),
-      });
-      const payload = await readJson<{ session_id: string }>(response);
-      setYoutubeUrl("");
-      setYoutubeCookies("");
-      await loadSessions(payload.session_id);
-      setYoutubeStatus(
-        "Import a YouTube transcript and turn it into a normal study session.",
-      );
-    } catch (importError) {
-      const message =
-        importError instanceof Error ? importError.message : "Import failed.";
-      setError(message);
-      setYoutubeStatus(message);
     } finally {
       setBusyKey("");
     }
@@ -971,7 +921,7 @@ export function StudioPageClient() {
             style={{ color: "rgba(255,255,255,0.45)" }}
           >
             Browse sessions, generate AI artifacts, chat with your transcript,
-            translate to any language, and import from YouTube — all wired to your
+            translate to any language — all wired to your
             existing backend.
           </p>
         </div>
@@ -992,61 +942,9 @@ export function StudioPageClient() {
       ) : null}
 
       {/* ══════════════════════════════════════════════════════════════════
-          ROW 1 — YouTube Import  |  Sessions list
+          ROW 1 — Sessions list
       ══════════════════════════════════════════════════════════════════ */}
       <section className="grid gap-5">
-        {/* YouTube import */}
-        <StudioCard
-          subtitle={youtubeStatus}
-          title="YouTube import"
-          actions={
-            <ActionButton busy={busyKey === "youtube"} onClick={importYouTubeSession} primary>
-              <Video className="h-4 w-4" />
-              Import
-            </ActionButton>
-          }
-        >
-          <div className="space-y-3">
-            <select
-              className="h-11 w-full rounded-2xl px-4 text-sm outline-none transition"
-              style={SELECT_STYLE}
-              onChange={(e) => setYoutubeBrowser(e.target.value)}
-              value={youtubeBrowser}
-            >
-              <option value="">No sign-in</option>
-              <option disabled={isHostedEnvironment} value="chrome">Use Chrome cookies{isHostedEnvironment ? " (local only)" : ""}</option>
-              <option disabled={isHostedEnvironment} value="edge">Use Edge cookies{isHostedEnvironment ? " (local only)" : ""}</option>
-              <option disabled={isHostedEnvironment} value="firefox">Use Firefox cookies{isHostedEnvironment ? " (local only)" : ""}</option>
-              <option disabled={isHostedEnvironment} value="brave">Use Brave cookies{isHostedEnvironment ? " (local only)" : ""}</option>
-              <option disabled={isHostedEnvironment} value="safari">Use Safari cookies{isHostedEnvironment ? " (local only)" : ""}</option>
-              <option value="paste">Paste cookies</option>
-            </select>
-            {isHostedEnvironment ? (
-              <p className="rounded-2xl px-4 py-3 text-sm leading-6"
-                style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", color: "#fde68a" }}>
-                Browser-cookie import works only on local machines. On the deployed app, use{" "}
-                <span className="font-semibold">Paste cookies</span> or <span className="font-semibold">No sign-in</span>.
-              </p>
-            ) : null}
-            {youtubeBrowser === "paste" ? (
-              <textarea
-                className="min-h-[90px] w-full rounded-2xl px-4 py-3 text-sm outline-none transition placeholder:text-white/25"
-                style={INPUT_STYLE}
-                onChange={(e) => setYoutubeCookies(e.target.value)}
-                placeholder="Paste Netscape-format cookies"
-                value={youtubeCookies}
-              />
-            ) : null}
-            <input
-              className="h-11 w-full rounded-2xl px-4 text-sm outline-none transition placeholder:text-white/25"
-              style={INPUT_STYLE}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              placeholder="Paste a YouTube URL"
-              value={youtubeUrl}
-            />
-          </div>
-        </StudioCard>
-
         {/* Sessions list */}
         <StudioCard
           title="Sessions"
@@ -1114,11 +1012,7 @@ export function StudioPageClient() {
           ══════════════════════════════════════════════════════════════════ */}
           <section className="grid gap-5">
             <StudioCard
-              subtitle={
-                detail.source_type === "youtube"
-                  ? `Imported from YouTube${detail.source_channel ? ` via ${detail.source_channel}` : ""}.`
-                  : "Transcript-derived study workspace for this saved session."
-              }
+              subtitle="Transcript-derived study workspace for this saved session."
               title={detail.title || "Untitled session"}
             >
               <div className="flex flex-wrap gap-2 text-xs">
@@ -1640,12 +1534,44 @@ export function StudioPageClient() {
                                   {(note.confidence || "medium").toUpperCase()}
                                 </span>
                               </div>
-                              <p
-                                className="text-xs mb-2"
-                                style={{ color: "rgba(255,255,255,0.35)" }}
-                              >
-                                Type: {note.file_type} • Characters: {(note.text || "").length}
-                              </p>
+                              <div className="flex items-center justify-between mb-2">
+                                <p
+                                  className="text-xs"
+                                  style={{ color: "rgba(255,255,255,0.35)" }}
+                                >
+                                  Type: {note.file_type} • Characters: {(note.text || "").length}
+                                </p>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(note.text || "");
+                                    }}
+                                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium transition-all hover:bg-white/10"
+                                    style={{ color: "rgba(255,255,255,0.5)" }}
+                                    title="Copy text"
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                    Copy
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const blob = new Blob([note.text || ""], { type: "text/plain" });
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement("a");
+                                      a.href = url;
+                                      a.download = `ocr-notes-${new Date(note.timestamp).toISOString().slice(0, 10)}.txt`;
+                                      a.click();
+                                      URL.revokeObjectURL(url);
+                                    }}
+                                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium transition-all hover:bg-white/10"
+                                    style={{ color: "rgba(255,255,255,0.5)" }}
+                                    title="Download as text file"
+                                  >
+                                    <Download className="h-3 w-3" />
+                                    Download
+                                  </button>
+                                </div>
+                              </div>
                               <p
                                 className="text-sm break-words whitespace-pre-wrap"
                                 style={{ color: "rgba(255,255,255,0.65)" }}
