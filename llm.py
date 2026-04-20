@@ -254,11 +254,8 @@ Given a full transcript, return a JSON object with exactly these six fields:
    Examples: "Operating Systems Basics", "Virtual Machines Setup", "CPU Architecture"
    Be specific to the actual content. No quotes, no punctuation at end.
 
-5. "speakers": infer speaker changes from context. Look for: topic shifts, question-answer
-   patterns, different speaking styles, direct address changes. Return an array of objects:
-   [{"speaker": "Speaker 1", "text": "sentence or group of sentences"}, ...]
-   Group consecutive sentences by the same inferred speaker.
-   If only one speaker detected, return all as "Speaker 1".
+5. "speakers": always return an empty array []. Speaker identification is handled
+   separately by Sarvam's diarization — do NOT guess speakers from the transcript.
 
 6. "notes": comprehensive and structured study preparation notes based extensively on the filtered technical content.
    If the valid content is sparse, use your extensive knowledge to generate high-level, comprehensive notes related

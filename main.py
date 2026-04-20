@@ -1162,6 +1162,54 @@ def merge_fragments(fragments: list) -> str:
         joined = joined[0].upper() + joined[1:]
     return joined
 
+def _normalize_speaker_id(raw) -> str:
+    """Convert any Sarvam speaker_id form to the canonical 'Speaker N' label."""
+    if raw is None or raw == "":
+        return ""
+    s = str(raw).strip()
+    if not s:
+        return ""
+    if s.lower().startswith("speaker"):
+        return s if s[0].isupper() else "Speaker" + s[7:]
+    if s.isdigit():
+        return f"Speaker {int(s) + 1}" if s == "0" else f"Speaker {s}"
+    return f"Speaker {s}"
+
+def _extract_speaker(d: dict, data: dict) -> str:
+    """Pull a speaker label from a Sarvam message, trying several known shapes."""
+    for key in ("speaker_id", "speaker", "speakerId", "speakerLabel"):
+        v = data.get(key) if isinstance(data, dict) else None
+        if v not in (None, ""):
+            return _normalize_speaker_id(v)
+        v = d.get(key) if isinstance(d, dict) else None
+        if v not in (None, ""):
+            return _normalize_speaker_id(v)
+    diar = data.get("diarization") if isinstance(data, dict) else None
+    if isinstance(diar, dict):
+        for key in ("speaker_id", "speaker", "label"):
+            v = diar.get(key)
+            if v not in (None, ""):
+                return _normalize_speaker_id(v)
+    words = data.get("words") if isinstance(data, dict) else None
+    if isinstance(words, list) and words:
+        from collections import Counter
+        labels = []
+        for w in words:
+            if isinstance(w, dict):
+                v = w.get("speaker_id") or w.get("speaker")
+                if v not in (None, ""):
+                    labels.append(_normalize_speaker_id(v))
+        if labels:
+            return Counter(labels).most_common(1)[0][0]
+    return ""
+
+def _dominant_speaker(speakers: list) -> str:
+    from collections import Counter
+    cleaned = [s for s in speakers if s]
+    if not cleaned:
+        return ""
+    return Counter(cleaned).most_common(1)[0][0]
+
 def build_paragraphs(sentences: list, size: int = 5) -> str:
     paras = []
     for i in range(0, len(sentences), size):
@@ -1749,6 +1797,8 @@ async def translate_ws(client_ws: WebSocket):
     all_sentences  = []
     sentiment_timeline = []
     frag_buf       = []
+    frag_speakers  = []   # parallel to frag_buf — speaker label per fragment
+    speaker_turns  = []   # [{"speaker": "Speaker N", "text": sentence}, ...] from Sarvam diarization
     last_frag_t    = [0.0]
     pcm_buffer     = bytearray()
     session_active = True
@@ -1771,12 +1821,16 @@ async def translate_ws(client_ws: WebSocket):
                 elapsed = asyncio.get_event_loop().time() - last_frag_t[0]
                 if elapsed >= idle_timeout:
                     sentence = merge_fragments(frag_buf)
+                    sp = _dominant_speaker(frag_speakers)
                     frag_buf.clear()
+                    frag_speakers.clear()
                     if sentence:
                         if AI_FEATURES_AVAILABLE and custom_vocabulary:
                             sentence = apply_custom_vocabulary(sentence, custom_vocabulary)
-                        print(f"  [flush_idle] → '{sentence}'")
+                        print(f"  [flush_idle] → '{sentence}' (speaker={sp or '?'})")
                         all_sentences.append(sentence)
+                        if sp:
+                            speaker_turns.append({"speaker": sp, "text": sentence})
                         if AI_FEATURES_AVAILABLE and sentiment_timeline is not None:
                             sentiment = {"text": sentence, **analyze_sentiment_text(sentence)}
                             sentiment_timeline.append(sentiment)
@@ -1786,6 +1840,7 @@ async def translate_ws(client_ws: WebSocket):
                             })
                         await broadcast_event(session_id, client_ws, {
                             "type": "transcript", "text": sentence, "is_final": True, "mode": mode,
+                            "speaker": sp,
                         })
 
     # ── Sarvam streaming ──────────────────────────────────────────────────────
@@ -1798,6 +1853,8 @@ async def translate_ws(client_ws: WebSocket):
                 language_code=language_code,
                 high_vad_sensitivity=True,
                 vad_signals=True,
+                with_diarization=True,
+                num_speakers=8,
             ) as sarvam_ws:
                 await broadcast_event(session_id, client_ws, {
                     "type": "ready", "message": "Sarvam AI connected",
@@ -1823,7 +1880,8 @@ async def translate_ws(client_ws: WebSocket):
                     async for msg in sarvam_ws:
                         await process_sarvam_msg(
                             msg, client_ws, mode,
-                            frag_buf, last_frag_t, all_sentences, session_id, custom_vocabulary, sentiment_timeline
+                            frag_buf, last_frag_t, all_sentences, session_id, custom_vocabulary, sentiment_timeline,
+                            frag_speakers, speaker_turns,
                         )
 
                 await asyncio.gather(sender(), receiver(), flush_idle())
@@ -1902,10 +1960,14 @@ async def translate_ws(client_ws: WebSocket):
     # ── Flush remaining fragment ──────────────────────────────────────────────
     if frag_buf:
         sentence = merge_fragments(frag_buf)
+        sp_final = _dominant_speaker(frag_speakers)
+        frag_speakers.clear()
         if sentence:
             if AI_FEATURES_AVAILABLE and custom_vocabulary:
                 sentence = apply_custom_vocabulary(sentence, custom_vocabulary)
             all_sentences.append(sentence)
+            if sp_final:
+                speaker_turns.append({"speaker": sp_final, "text": sentence})
             if AI_FEATURES_AVAILABLE:
                 sentiment_timeline.append({"text": sentence, **analyze_sentiment_text(sentence)})
 
@@ -1917,6 +1979,8 @@ async def translate_ws(client_ws: WebSocket):
             print(f"  [Auth] ⚠️ ws_user_id is empty — session will be saved without user ownership")
 
         result = {"summary": "", "filtered_transcript": ""}
+        # Default to live Sarvam diarization; may be replaced after LLM call below.
+        final_speakers = list(speaker_turns) if speaker_turns else []
         try:
             try:
                 # 1. Notify browser: processing started
@@ -1933,6 +1997,10 @@ async def translate_ws(client_ws: WebSocket):
             else:
                 print(f"  [LLM] Skipped — LLM_AVAILABLE={LLM_AVAILABLE}, GEMINI_API_KEY set={bool(os.getenv('GEMINI_API_KEY', ''))}")
 
+            # Prefer REAL Sarvam diarization over any LLM-inferred speakers.
+            final_speakers = list(speaker_turns) if speaker_turns else result.get("speakers", [])
+            print(f"  [Speakers] using {'Sarvam diarization' if speaker_turns else 'LLM fallback'} → {len(final_speakers)} turns")
+
             # 2. Send analysis results to browser while connection is open
             try:
                 await broadcast_event(session_id, client_ws, {
@@ -1942,7 +2010,7 @@ async def translate_ws(client_ws: WebSocket):
                     "filtered_transcript": result.get("filtered_transcript", ""),
                     "corrected_transcript":result.get("corrected_transcript", ""),
                     "title":               result.get("title", ""),
-                    "speakers":            result.get("speakers", []),
+                    "speakers":            final_speakers,
                 })
                 print(f"  [LLM] Sent → title:'{result.get('title','')}' summary:{len(result.get('summary',''))} chars notes:{len(result.get('notes',''))} chars")
             except Exception as e:
@@ -1968,7 +2036,7 @@ async def translate_ws(client_ws: WebSocket):
             final_title,
             result.get("notes", ""),
             final_user_id,
-            result.get("speakers", []),
+            final_speakers,
             extra_fields={
                 "target_lang": target_lang,
                 "custom_vocabulary": custom_vocabulary,
@@ -1992,7 +2060,7 @@ async def translate_ws(client_ws: WebSocket):
         pass
 
 
-async def process_sarvam_msg(msg, client_ws, mode, frag_buf, last_frag_t, all_sentences, session_id=None, custom_vocabulary=None, sentiment_timeline=None):
+async def process_sarvam_msg(msg, client_ws, mode, frag_buf, last_frag_t, all_sentences, session_id=None, custom_vocabulary=None, sentiment_timeline=None, frag_speakers=None, speaker_turns=None):
     try:
         if hasattr(msg, 'model_dump'):
             d = msg.model_dump()
@@ -2023,19 +2091,24 @@ async def process_sarvam_msg(msg, client_ws, mode, frag_buf, last_frag_t, all_se
                 else: await client_ws.send_json({"type": "speech_end"})
                 if frag_buf:
                     sentence = merge_fragments(frag_buf)
+                    sp = _dominant_speaker(frag_speakers) if frag_speakers is not None else ""
                     frag_buf.clear()
+                    if frag_speakers is not None:
+                        frag_speakers.clear()
                     if sentence:
                         if AI_FEATURES_AVAILABLE and custom_vocabulary:
                             sentence = apply_custom_vocabulary(sentence, custom_vocabulary)
-                        print(f"  [END_SPEECH] → '{sentence}'")
+                        print(f"  [END_SPEECH] → '{sentence}' (speaker={sp or '?'})")
                         all_sentences.append(sentence)
+                        if sp and speaker_turns is not None:
+                            speaker_turns.append({"speaker": sp, "text": sentence})
                         if AI_FEATURES_AVAILABLE and sentiment_timeline is not None:
                             sentiment = {"text": sentence, **analyze_sentiment_text(sentence)}
                             sentiment_timeline.append(sentiment)
                             sentiment_payload = {"type": "sentiment", "sentiment": sentiment}
                             if session_id: await broadcast_event(session_id, client_ws, sentiment_payload)
                             else: await client_ws.send_json(sentiment_payload)
-                        payload = {"type": "transcript", "text": sentence, "is_final": True, "mode": mode}
+                        payload = {"type": "transcript", "text": sentence, "is_final": True, "mode": mode, "speaker": sp}
                         if session_id: await broadcast_event(session_id, client_ws, payload)
                         else: await client_ws.send_json(payload)
             return
@@ -2052,23 +2125,31 @@ async def process_sarvam_msg(msg, client_ws, mode, frag_buf, last_frag_t, all_se
             if len(text) <= 2 and text[-1:] not in '.!?।॥' and not _is_indic(text):
                 return
 
-            print(f"  [fragment] '{text}'")
+            sp_frag = _extract_speaker(d, data)
+            print(f"  [fragment] '{text}' (speaker={sp_frag or '?'})")
             frag_buf.append(text)
+            if frag_speakers is not None:
+                frag_speakers.append(sp_frag)
             last_frag_t[0] = asyncio.get_event_loop().time()
 
             preview = merge_fragments(frag_buf)
-            payload_partial = {"type": "partial", "text": preview, "is_final": False}
+            payload_partial = {"type": "partial", "text": preview, "is_final": False, "speaker": sp_frag}
             if session_id: await broadcast_event(session_id, client_ws, payload_partial)
             else: await client_ws.send_json(payload_partial)
 
             if is_sentence_end(text):
                 sentence = merge_fragments(frag_buf)
+                sp = _dominant_speaker(frag_speakers) if frag_speakers is not None else sp_frag
                 frag_buf.clear()
+                if frag_speakers is not None:
+                    frag_speakers.clear()
                 if sentence:
                     if AI_FEATURES_AVAILABLE and custom_vocabulary:
                         sentence = apply_custom_vocabulary(sentence, custom_vocabulary)
-                    print(f"  [sentence] → '{sentence}'")
+                    print(f"  [sentence] → '{sentence}' (speaker={sp or '?'})")
                     all_sentences.append(sentence)
+                    if sp and speaker_turns is not None:
+                        speaker_turns.append({"speaker": sp, "text": sentence})
                     if AI_FEATURES_AVAILABLE and sentiment_timeline is not None:
                         sentiment = {"text": sentence, **analyze_sentiment_text(sentence)}
                         sentiment_timeline.append(sentiment)
@@ -2077,7 +2158,7 @@ async def process_sarvam_msg(msg, client_ws, mode, frag_buf, last_frag_t, all_se
                             await broadcast_event(session_id, client_ws, sentiment_payload)
                         else:
                             await client_ws.send_json(sentiment_payload)
-                    payload_final = {"type": "transcript", "text": sentence, "is_final": True, "mode": mode}
+                    payload_final = {"type": "transcript", "text": sentence, "is_final": True, "mode": mode, "speaker": sp}
                     if session_id: await broadcast_event(session_id, client_ws, payload_final)
                     else: await client_ws.send_json(payload_final)
 
